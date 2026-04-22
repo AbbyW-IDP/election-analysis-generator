@@ -1,0 +1,213 @@
+"""
+dupage_elections/cli.py
+-----------------------
+Command-line entry points for the dupage_elections package.
+
+Each function is registered as a [project.scripts] entry point in
+pyproject.toml, so after `uv sync` you can run:
+
+    setup-db           Load the historical Excel workbook and seed the DB
+    sync-sources       Load any new elections defined in elections.toml
+    generate-analysis  Write election_analysis.xlsx
+    export-flags       Write flags_review.xlsx for spreadsheet review
+    import-flags       Apply a reviewed flags_review.xlsx to the DB
+    review-flags       Interactively resolve flags in the terminal
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+from .db import ElectionDatabase, DEFAULT_DB_PATH
+from .loader import ElectionLoader, DEFAULT_SOURCES_DIR, DEFAULT_CONFIG_PATH, load_elections_config
+from .flags import (
+    export_flags,
+    import_flags,
+    review_flags,
+    DEFAULT_EXPORT_PATH,
+    DEFAULT_IMPORT_PATH,
+)
+
+
+# ---------------------------------------------------------------------------
+# setup-db
+# ---------------------------------------------------------------------------
+
+DEFAULT_EXCEL = Path("comparison_14-26_official.xlsx")
+
+
+def setup_db() -> None:
+    """Load the historical Excel workbook into elections.db, then sync sources."""
+    excel_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_EXCEL
+    sources_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_SOURCES_DIR
+
+    with ElectionDatabase(DEFAULT_DB_PATH) as db:
+        loader = ElectionLoader(db)
+
+        configs = load_elections_config(DEFAULT_CONFIG_PATH)
+
+        print(f"Loading {excel_path}...")
+        results = loader.load_excel(excel_path, configs)
+        for name, (election, new_names) in results.items():
+            print(f"  {name}: loaded")
+            if new_names:
+                print(f"  ⚠ {len(new_names)} new contest name(s) registered")
+
+        if sources_dir.exists():
+            print(f"\nSyncing {sources_dir}...")
+            sync_results = loader.sync(sources_dir=sources_dir)
+            if sync_results:
+                for filename, (election, new_names) in sync_results.items():
+                    print(f"  {election.name}: loaded")
+                    if new_names:
+                        print(f"  ⚠ {len(new_names)} unrecognized contest name(s)")
+            else:
+                print("  No new CSV files found.")
+
+    print(f"\nDone. Run `sync-sources` to load future elections.")
+
+
+# ---------------------------------------------------------------------------
+# sync-sources
+# ---------------------------------------------------------------------------
+
+def sync_sources() -> None:
+    """Load any elections defined in elections.toml whose CSV hasn't been loaded yet."""
+    sources_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_SOURCES_DIR
+    config_path = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_CONFIG_PATH
+
+    with ElectionDatabase(DEFAULT_DB_PATH) as db:
+        loader = ElectionLoader(db)
+
+        print(f"Scanning {config_path} for new elections...")
+        results = loader.sync(sources_dir=sources_dir, config_path=config_path)
+
+    if not results:
+        print("No new elections found.")
+        return
+
+    any_flags = False
+    for filename, (election, new_names) in results.items():
+        print(f"\n  {election.name} ({filename}): loaded successfully")
+        if new_names:
+            any_flags = True
+            print(f"  ⚠ {len(new_names)} unrecognized contest name(s):")
+            for name in new_names:
+                print(f"    {name}")
+
+    if any_flags:
+        print("\nRun: review-flags")
+        print(" or: export-flags  (for large batches)")
+
+
+# ---------------------------------------------------------------------------
+# generate-analysis
+# ---------------------------------------------------------------------------
+
+DEFAULT_OUTPUT = Path("election_analysis.xlsx")
+
+
+def generate_analysis() -> None:
+    """Write election_analysis.xlsx from the current database."""
+    import pandas as pd
+    from .analysis import ElectionAnalyzer
+
+    output_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_OUTPUT
+
+    with ElectionDatabase(DEFAULT_DB_PATH) as db:
+        analyzer = ElectionAnalyzer(db)
+
+        print("Elections in database:")
+        elections = analyzer.list_elections()
+        print(elections[["id", "name", "year", "election_date"]].to_string(index=False))
+        print()
+
+        if len(elections) < 2:
+            print("Need at least 2 elections loaded to run comparisons.")
+            return
+
+        names = elections["name"].tolist()
+        recent_a, recent_b = names[-2], names[-1]
+
+        print(f"Running pct_change_by_party: {recent_a!r} vs {recent_b!r}")
+        pct_change = analyzer.pct_change_by_party(recent_a, recent_b)
+
+        print("Running party_share across all elections")
+        share = analyzer.party_share(*names)
+
+        print("Running turnout across all elections")
+        turnout = analyzer.turnout()
+
+        print(f"\nWriting to {output_path}...")
+        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+            turnout.to_excel(writer, sheet_name="turnout")
+            pct_change.to_excel(writer, sheet_name="pct change by party", index=False)
+            share.to_excel(writer, sheet_name="party share", index=False)
+
+    print("Done.")
+
+
+# ---------------------------------------------------------------------------
+# export-flags
+# ---------------------------------------------------------------------------
+
+def export_flags_cmd() -> None:
+    """Write unresolved flags to flags_review.xlsx for spreadsheet review."""
+    output_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_EXPORT_PATH
+
+    with ElectionDatabase(DEFAULT_DB_PATH) as db:
+        n = export_flags(db, output_path)
+
+    if n == 0:
+        print("No unresolved flags to export.")
+        return
+
+    print(f"Exported {n} flag(s) to {output_path}")
+    print()
+    print("Next steps:")
+    print("  1. Open the workbook and review the 'flags' tab")
+    print("  2. Set Status to: accepted, mapped, or ignored")
+    print("     For 'mapped', fill in 'Override Target' with a name from 'known_contests'")
+    print("  3. Run: import-flags")
+
+
+# ---------------------------------------------------------------------------
+# import-flags
+# ---------------------------------------------------------------------------
+
+def import_flags_cmd() -> None:
+    """Apply a reviewed flags_review.xlsx to the database."""
+    input_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_IMPORT_PATH
+
+    with ElectionDatabase(DEFAULT_DB_PATH) as db:
+        try:
+            counts = import_flags(db, input_path)
+        except FileNotFoundError as e:
+            print(e)
+            sys.exit(1)
+        except ValueError as e:
+            print(e)
+            sys.exit(1)
+
+    print("Import complete:")
+    print(f"  {counts['accepted']:>5} accepted")
+    print(f"  {counts['mapped']:>5} mapped")
+    print(f"  {counts['ignored']:>5} ignored")
+    print(f"  {counts['skipped']:>5} unreviewed (skipped)")
+    if counts["errors"]:
+        print(f"  {counts['errors']:>5} errors — fix and re-run")
+
+    remaining = counts["skipped"] + counts["errors"]
+    if remaining:
+        print(f"\n{remaining} flag(s) still unresolved. Re-export and review to continue.")
+
+
+# ---------------------------------------------------------------------------
+# review-flags
+# ---------------------------------------------------------------------------
+
+def review_flags_cmd() -> None:
+    """Interactively resolve flagged contest names in the terminal."""
+    with ElectionDatabase(DEFAULT_DB_PATH) as db:
+        review_flags(db)

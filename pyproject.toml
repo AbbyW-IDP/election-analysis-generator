@@ -2,36 +2,37 @@
 name = "dupage-elections"
 version = "0.1.0"
 description = "Analysis of partisan primary election results in DuPage County, IL"
-requires-python = ">=3.10"
+requires-python = ">=3.14"
 dependencies = [
-    "pandas>=2.0",
+    "pandas>=3.0",
     "openpyxl>=3.1",
 ]
 
 [project.scripts]
-setup-db          = "dupage_elections:setup_db.main"
-load-election     = "dupage_elections:load_election.main"
-generate-analysis = "dupage_elections:generate_analysis.main"
-review-flags      = "dupage_elections:review_flags.main"
+setup-db          = "dupage_elections.cli:setup_db"
+sync-sources      = "dupage_elections.cli:sync_sources"
+generate-analysis = "dupage_elections.cli:generate_analysis"
+export-flags      = "dupage_elections.cli:export_flags_cmd"
+import-flags      = "dupage_elections.cli:import_flags_cmd"
+review-flags      = "dupage_elections.cli:review_flags_cmd"
 
 [build-system]
-requires      = ["hatchling"]
+requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.uv]
-dev-dependencies = [
-    "pytest>=8.0",
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
     "pytest-cov>=5.0",
-    "pytest-xdist>=3.0",
 ]
 
-[tool.pytest.ini_options]
-testpaths    = ["tests"]
-addopts      = "-ra -q"
+[tool.pytest]
+testpaths = ["tests"]
+addopts = [
+    "--cov=dupage_elections",
+    "--cov-report=term-missing",
+]
 
 [tool.coverage.run]
 source = ["dupage_elections"]
-omit   = ["tests/*"]
-
-[tool.coverage.report]
-show_missing = true
+omit = ["tests/*"]

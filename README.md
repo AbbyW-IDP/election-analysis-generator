@@ -12,29 +12,28 @@ Data are sourced from [DuPage County Election Results](https://www.dupageresults
 .
 ├── README.md
 ├── pyproject.toml
-├── setup_db.py              # One-time setup: load historical Excel workbook
-├── sync_sources.py          # Load new CSVs from the sources/ directory
-├── generate_analysis.py     # Produce Excel output from the database
-├── export_flags.py          # Export unresolved flags to a spreadsheet for review
-├── import_flags.py          # Import reviewed flags spreadsheet and update the database
-├── review_flags.py          # Interactive CLI for resolving flags one at a time
-├── sources/                 # Drop election CSVs here to load them
+├── elections.toml              # Election metadata: names, dates, turnout figures, source files
+├── elections.db                # SQLite database (generated locally, not committed)
+├── sources/                    # Drop election CSVs here to load them
 │   ├── 2022-general-primary-2022-07-19.csv
 │   └── 2026-general-primary-2026-04-07.csv
-├── dupage_elections/
-│   ├── db.py                # ElectionDatabase class
-│   ├── loader.py            # ElectionLoader class
-│   ├── analysis.py          # ElectionAnalyzer class
-│   └── normalize.py         # Contest name and party normalization functions
+├── dupage_elections/           # Package — all logic lives here
+│   ├── models.py               # Dataclasses: Election, Contest, Candidate
+│   ├── db.py                   # ElectionDatabase: all SQLite operations
+│   ├── loader.py               # ElectionLoader: reads config + CSVs into DB
+│   ├── analysis.py             # ElectionAnalyzer: analysis methods → DataFrames
+│   ├── normalize.py            # Pure functions: contest name + party normalization
+│   ├── flags.py                # export_flags(), import_flags(), review_flags()
+│   └── cli.py                  # Entry points wired to [project.scripts]
 └── tests/
-    ├── conftest.py
+    ├── conftest.py             # Fixtures and helpers: db, sample_election, seed_election()
     ├── test_db.py
     ├── test_loader.py
     ├── test_analysis.py
     └── test_normalize.py
 ```
 
-> `elections.db` is generated locally by running `setup_db.py` and is not committed to the repository.
+> `elections.db` is generated locally and is not committed to the repository.
 
 ---
 
@@ -42,7 +41,7 @@ Data are sourced from [DuPage County Election Results](https://www.dupageresults
 
 ### Requirements
 
-- Python 3.10+
+- Python 3.14+
 - [uv](https://github.com/astral-sh/uv) for dependency management
 
 ### Install
@@ -53,57 +52,78 @@ uv sync
 
 ### First-time setup
 
-Run `setup_db.py` once to create `elections.db` from the historical Excel workbook. It will also sync any CSVs already in `sources/`:
+Run `setup-db` once to create `elections.db` from the historical Excel workbook. It will also sync any CSVs already defined in `elections.toml`:
 
 ```bash
-uv run python setup_db.py
+uv run setup-db
 ```
 
 By default it looks for `comparison_14-26_official.xlsx` in the current directory. You can pass a custom path:
 
 ```bash
-uv run python setup_db.py path/to/workbook.xlsx
+uv run setup-db path/to/workbook.xlsx
 ```
 
 ---
 
 ## Adding new elections
 
-Place the raw CSV for the new election in the `sources/` directory. The filename must contain a 4-digit year — the year at the start of the filename is used as the election year, so date-suffixed names like `2030-general-primary-2030-07-15.csv` work correctly. Then run:
+1. Place the raw CSV in the `sources/` directory.
+2. Add an entry to `elections.toml` (see [Election config](#election-config) below).
+3. Run:
 
 ```bash
-uv run python sync_sources.py
+uv run sync-sources
 ```
 
-`sync_sources.py` scans `sources/` for any CSV files not yet in the database and loads them. Files already loaded are skipped. **Database entries are never removed**, even if the source file is later deleted — this preserves historical data regardless of what's on disk.
+`sync-sources` checks `elections.toml` for any elections whose `source_file` hasn't been loaded yet and loads them. Already-loaded elections are skipped. **Database entries are never removed** even if a source file is later deleted.
 
-If any contest names in the new file don't match known names, they are flagged for review. See [Reviewing flagged contest names](#reviewing-flagged-contest-names) below.
+If any contest names in the new file don't match the registry, they are flagged for review. See [Reviewing flagged contest names](#reviewing-flagged-contest-names) below.
+
+---
+
+## Election config
+
+All elections are defined in `elections.toml`. Each entry uses a `[elections.<key>]` section:
+
+```toml
+[elections.2026-general-primary]
+name              = "2026 General Primary"
+year              = 2026
+election_date     = "2026-04-07"
+category          = "General Primary"
+election_type     = "midterm"
+source_file       = "2026-general-primary-2026-04-07.csv"
+registered_voters = 636822
+ballots_cast      = 161738
+```
+
+| Field | Required | Description |
+|---|---|---|
+| `name` | Yes | Display name used throughout the codebase |
+| `source_file` | Yes | CSV filename in `sources/` (basename only, no path prefix) |
+| `year` | No | Inferred from filename if omitted |
+| `election_date` | No | ISO 8601 date (`YYYY-MM-DD`) |
+| `category` | No | One of: `Consolidated`, `Consolidated Primary`, `General`, `General Primary` |
+| `election_type` | No | One of: `presidential`, `midterm` |
+| `registered_voters` | No | County-wide registered voter count |
+| `ballots_cast` | No | County-wide ballots cast; if absent, derived as the max across all contest rows in the CSV |
 
 ---
 
 ## Generating analysis output
 
 ```bash
-uv run python generate_analysis.py
+uv run generate-analysis
 ```
 
-This writes `election_analysis.xlsx` with the following sheets:
-
-| Sheet | Description |
-|---|---|
-| `turnout` | Registered voters, ballots cast, and turnout rate by year |
-| `22-26 pct change by party` | Vote totals per party per contest, 2022 vs. 2026 |
-| `22-26 party share` | Each party's share of total contest votes, 2022 vs. 2026 |
-| `22-26 comparison` | Vote totals and party share combined |
-| `14-26 pct change by party` | Vote totals per party per contest across all four years |
-
-All analysis is filtered to **comparable contests** — contests where both DEM and REP had votes in every year being compared.
+This writes `election_analysis.xlsx` with sheets for turnout, party vote-share, and percent change across elections. All comparisons are filtered to **comparable contests** — contests where both DEM and REP had votes in every election being compared.
 
 ---
 
 ## Contest name normalization
 
-Raw contest names vary across years. The following transformations are applied automatically when loading any source file:
+Raw contest names vary across years. The following transformations are applied automatically on load:
 
 | Rule | Example input | Normalized output |
 |---|---|---|
@@ -114,7 +134,7 @@ Raw contest names vary across years. The following transformations are applied a
 | Gender-neutral titles | `FOR PRECINCT COMMITTEEWOMAN YORK 050` | `FOR PRECINCT COMMITTEEPERSON YORK 050` |
 | Spell out ordinals | `81ST REPRESENTATIVE DISTRICT` | `EIGHTY-FIRST REPRESENTATIVE DISTRICT` |
 
-Plain integers (e.g. `District 1`) are preserved. Only ordinal suffixes like `1st`, `21st`, `81st` are expanded. Original raw contest names are always stored alongside normalized names for reference.
+Plain integers (e.g. `District 1`) are preserved. Original raw contest names are always stored alongside normalized names for reference.
 
 ---
 
@@ -124,88 +144,103 @@ After loading a new election, any normalized contest name that doesn't match the
 
 ### Option A — Spreadsheet review (recommended for large batches)
 
-Export all unresolved flags to a spreadsheet:
-
 ```bash
-uv run python export_flags.py
+uv run export-flags        # writes flags_review.xlsx
+# ... edit the spreadsheet ...
+uv run import-flags        # applies your decisions to the DB
 ```
 
-This writes `flags_review.xlsx` with two tabs:
+`flags_review.xlsx` has two tabs:
 
-- **`flags`** — one row per unresolved flag, with columns: Flag ID, Year, Raw Name, Normalized Suggestion, Status, Override Target, Notes
-- **`known_contests`** — all normalized contest names currently in the registry, for reference when mapping
+- **`flags`** — one row per unresolved flag with columns: Flag ID, Year, Raw Name, Normalized Suggestion, Status, Override Target, Notes
+- **`known_contests`** — all normalized contest names currently in the registry
 
-Open the spreadsheet and set the **Status** column for each row:
+Set the **Status** column for each flag row:
 
 | Status | Meaning |
 |---|---|
-| `unreviewed` | Default. Row will be skipped on import. |
-| `accepted` | Accept the Normalized Suggestion as a new contest name. |
-| `mapped` | Map to an existing contest. Fill in **Override Target** with the exact name from the `known_contests` tab. |
-| `ignored` | Acknowledge the flag without registering anything (e.g. ballot measures you don't want to track). |
+| `unreviewed` | Default — skipped on import |
+| `accepted` | Accept the Normalized Suggestion as a new contest name |
+| `mapped` | Map to an existing contest — fill in **Override Target** with a name from `known_contests` |
+| `ignored` | Acknowledge without registering (e.g. ballot measures you don't want to track) |
 
-You can work through flags in batches — `unreviewed` rows are always skipped on import, so you can import partially and re-export to continue. Once you've reviewed your rows, import the results:
-
-```bash
-uv run python import_flags.py
-```
-
-The script reports how many flags were accepted, mapped, ignored, and skipped, and tells you how many remain unresolved.
+You can import partially and re-export to continue — `unreviewed` rows are always skipped.
 
 ### Option B — Interactive terminal review
 
-For smaller batches, resolve flags one at a time in the terminal:
-
 ```bash
-uv run python review_flags.py
+uv run review-flags
 ```
 
-For each flag you can accept it as a new contest, map it to an existing one, or skip it for later.
+For each flag you can accept it as a new contest, map it to an existing one, or skip for later.
 
 ### How overrides work
 
-When a flag is marked `mapped`, an entry is added to the `contest_name_overrides` table linking the raw name to the canonical normalized name. On all future loads, any raw contest name with an override is mapped directly without going through normalization — so if a county renames a contest but it's the same race, you can map it once and it will be handled correctly forever after.
+When a flag is marked `mapped`, an entry is added to `contest_name_overrides` linking the raw name to its canonical normalized name. On all future loads that raw name is mapped directly, bypassing normalization — so a renamed contest can be mapped once and handled correctly forever after.
 
 ---
 
 ## Architecture
 
-The project uses three main classes:
+**`models.py`** defines the core dataclasses: `Election`, `Contest`, `Candidate`.
 
-**`ElectionDatabase`** (`db.py`) owns all database state: the SQLite connection, schema, contest name registry, flags, overrides, and source file registry. All other classes interact with the database through this interface.
+**`db.py` — `ElectionDatabase`** owns all database state: the SQLite connection, schema, contest name registry, flags, overrides, and source file registry. All other classes go through this interface.
 
-**`ElectionLoader`** (`loader.py`) reads source files and loads them into an `ElectionDatabase`. Supports CSV files and the historical Excel workbook. The `sync_sources()` method scans a directory and loads only files not already registered.
+**`loader.py` — `ElectionLoader`** reads `elections.toml` and source files, then loads them into an `ElectionDatabase`. `sync()` loads only elections not already registered. Handles both CSV sources and the historical Excel workbook.
 
-**`ElectionAnalyzer`** (`analysis.py`) reads from an `ElectionDatabase` and produces analysis DataFrames. Each method corresponds to one output tab.
+**`analysis.py` — `ElectionAnalyzer`** reads from an `ElectionDatabase` and produces analysis DataFrames. Elections can be specified by name, database id, or `Election` object. Methods: `list_elections()`, `pct_change_by_party()`, `party_share()`, `turnout()`.
 
-`normalize.py` contains pure functions for contest name and party normalization — no state, no I/O, fully unit-tested independently.
+**`normalize.py`** contains pure functions for contest name and party normalization — no state, no I/O, fully unit-tested independently.
+
+**`flags.py`** contains `export_flags()`, `import_flags()`, and `review_flags()` — all flag-management logic in one place.
+
+**`cli.py`** contains the entry points registered in `[project.scripts]`.
 
 ---
 
 ## Database schema
 
-**`results`** — one row per candidate per contest per year
+**`elections`** — one row per election event
 
 | Column | Description |
 |---|---|
+| `id` | Primary key |
+| `name` | Display name (e.g. `"2026 General Primary"`) |
 | `year` | Election year |
-| `source_file` | Filename the row was loaded from |
+| `election_date` | Date of the election |
+| `results_last_updated` | Date results were last updated |
+| `source_file` | Unique key for the source this election was loaded from |
+| `category` | Election category (`General Primary`, etc.) |
+| `election_type` | `presidential` or `midterm` |
+| `registered_voters` | County-wide registered voter count |
+| `ballots_cast` | County-wide ballots cast |
+
+**`contests`** — one row per unique normalized contest name
+
+| Column | Description |
+|---|---|
+| `contest_name` | Normalized name (primary key) |
+| `is_legislation` | `1` if this is a ballot measure, `0` if partisan |
+
+**`candidates`** — one row per candidate per contest per election
+
+| Column | Description |
+|---|---|
+| `contest_id` | FK → `contests` |
+| `election_id` | FK → `elections` |
 | `contest_name_raw` | Original contest name from the source file |
-| `contest_name` | Normalized contest name |
 | `choice_name` | Candidate name |
-| `party` | Party (`DEM`, `REP`, `GP`, `WC`, etc.) |
-| `total_votes` | Votes received by this candidate |
+| `party` | Normalized party code (`DEM`, `REP`, `GP`, `WC`, etc.) |
+| `total_votes` | Votes received |
 | `percent_of_votes` | Candidate's share within their party primary |
-| `registered_voters` | Registered voters in the contest |
-| `ballots_cast` | Ballots cast in the contest |
 
 **`contest_names`** — registry of known normalized contest names
 
 **`contest_name_flags`** — names from new sources that didn't match any known name
 
-**`contest_name_overrides`** — manual mappings from a raw name to a canonical normalized name
+**`contest_name_overrides`** — manual mappings: raw name → canonical normalized name
 
-**`loaded_sources`** — registry of source files that have been loaded into the database
+**`loaded_sources`** — registry of source keys that have been loaded (prevents re-loading)
 
 ---
 
@@ -215,18 +250,6 @@ The project uses three main classes:
 uv run pytest
 ```
 
-With coverage:
-
-```bash
-uv run pytest --cov=dupage_elections --cov-report=term-missing
-```
-
-In parallel:
-
-```bash
-uv run pytest -n auto
-```
-
 ---
 
 ## Data notes
@@ -234,4 +257,4 @@ uv run pytest -n auto
 - Results cover DuPage County primary elections only
 - Only DEM and REP contests are used in partisan comparisons; other parties are stored but excluded from analysis
 - 2026 results are official as of April 7, 2026
-- Turnout figures use the maximum registered voter and ballots cast values across all contests in a given year, which represent the county-wide figures
+- `category` and `election_type` are defined in `elections.toml` and stored on the `elections` table; valid values are enforced at load time

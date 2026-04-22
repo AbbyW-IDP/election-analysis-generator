@@ -31,6 +31,8 @@ def sample_election():
         election_date=date(2022, 6, 28),
         results_last_updated=date(2022, 7, 19),
         source_file="2022-general-primary.csv",
+        category="General Primary",
+        election_type="midterm",
     )
 
 
@@ -62,6 +64,8 @@ def seed_election(
     year: int,
     rows: list[dict],
     election_date: date | None = None,
+    category: str = "General Primary",
+    election_type: str = "midterm",
 ) -> Election:
     """
     Insert an Election with candidate rows directly into the database.
@@ -83,6 +87,8 @@ def seed_election(
         election_date=election_date,
         results_last_updated=None,
         source_file=f"{name.lower().replace(' ', '-')}.csv",
+        category=category,
+        election_type=election_type,
     )
     election = db.insert_election(election, df)
     db.register_source(election.source_file, election.id)

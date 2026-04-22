@@ -24,6 +24,8 @@ _SCHEMA = """
         election_date        TEXT,
         results_last_updated TEXT,
         source_file          TEXT NOT NULL UNIQUE,
+        category             TEXT NOT NULL DEFAULT '',
+        election_type        TEXT NOT NULL DEFAULT '',
         ballots_cast         INTEGER,
         registered_voters    INTEGER
     );
@@ -124,21 +126,27 @@ class ElectionDatabase:
     def insert_election(self, election: Election, df: pd.DataFrame) -> Election:
         """
         Insert an Election and all its candidates from a normalized DataFrame.
-        Derives ballots_cast and registered_voters from the DataFrame.
+        Derives ballots_cast and registered_voters from the DataFrame if not
+        already set on the Election object.
         Returns the Election with its database id populated.
         """
         overrides = self.get_overrides()
 
-        # Derive counts from CSV data
-        ballots_cast = int(df["ballots_cast"].max()) if "ballots_cast" in df.columns else None
-        registered_voters = int(df["registered_voters"].max()) if "registered_voters" in df.columns else None
+        # Prefer explicit values from the Election object; fall back to CSV data
+        ballots_cast = election.ballots_cast
+        registered_voters = election.registered_voters
+        if ballots_cast is None and "ballots_cast" in df.columns:
+            ballots_cast = int(df["ballots_cast"].max())
+        if registered_voters is None and "registered_voters" in df.columns:
+            registered_voters = int(df["registered_voters"].max())
 
         cur = self._conn.execute(
             """
             INSERT INTO elections
                 (name, year, election_date, results_last_updated,
-                 source_file, ballots_cast, registered_voters)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                 source_file, category, election_type,
+                 ballots_cast, registered_voters)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 election.name,
@@ -146,6 +154,8 @@ class ElectionDatabase:
                 election.election_date.isoformat() if election.election_date else None,
                 election.results_last_updated.isoformat() if election.results_last_updated else None,
                 election.source_file,
+                election.category,
+                election.election_type,
                 ballots_cast,
                 registered_voters,
             ),
@@ -158,6 +168,8 @@ class ElectionDatabase:
             election_date=election.election_date,
             results_last_updated=election.results_last_updated,
             source_file=election.source_file,
+            category=election.category,
+            election_type=election.election_type,
             ballots_cast=ballots_cast,
             registered_voters=registered_voters,
         )
@@ -274,6 +286,8 @@ class ElectionDatabase:
             election_date=date.fromisoformat(row["election_date"]) if row["election_date"] else None,
             results_last_updated=date.fromisoformat(row["results_last_updated"]) if row["results_last_updated"] else None,
             source_file=row["source_file"],
+            category=row["category"],
+            election_type=row["election_type"],
             ballots_cast=row["ballots_cast"],
             registered_voters=row["registered_voters"],
         )

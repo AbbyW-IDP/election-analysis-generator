@@ -73,8 +73,9 @@ class ElectionAnalyzer:
     def list_elections(self) -> pd.DataFrame:
         """Return a summary of all elections in the database."""
         return self._db.query("""
-            SELECT id, name, year, election_date, results_last_updated,
-                   ballots_cast, registered_voters, source_file
+            SELECT id, name, year, election_date, category, election_type,
+                   results_last_updated, ballots_cast, registered_voters,
+                   source_file
             FROM elections
             ORDER BY year, election_date
         """)

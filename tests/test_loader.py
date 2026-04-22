@@ -31,9 +31,16 @@ def write_toml(tmp_path: Path, entries: list[dict]) -> Path:
     p = tmp_path / "elections.toml"
     lines = []
     for entry in entries:
-        lines.append("[[elections]]")
+        # Derive a slug for the section key from source_file or name
+        raw_key = entry.get("source_file", entry.get("name", "election"))
+        slug = Path(raw_key).stem.replace(" ", "-").lower()
+        lines.append(f"[elections.{slug}]")
         for k, v in entry.items():
-            lines.append(f'{k} = "{v}"')
+            # Write integers without quotes; everything else as a quoted string
+            if isinstance(v, int) or (isinstance(v, str) and v.isdigit()):
+                lines.append(f"{k} = {int(v)}")
+            else:
+                lines.append(f'{k} = "{v}"')
         lines.append("")
     p.write_text("\n".join(lines))
     return p

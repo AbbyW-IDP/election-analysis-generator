@@ -5,8 +5,9 @@ ElectionLoader: reads election config and CSV source files, loads them
 into an ElectionDatabase.
 
 Elections are configured in elections.toml. Each entry maps a CSV filename
-to an election name, year, and dates. The loader reads the toml, checks
-which sources haven't been loaded yet, and loads any new ones.
+to an election name, year, dates, category, election_type, and turnout
+figures. The loader reads the toml, checks which sources haven't been
+loaded yet, and loads any new ones.
 """
 
 import re
@@ -21,6 +22,11 @@ from dupage_elections.models import Election
 
 DEFAULT_SOURCES_DIR = Path("sources")
 DEFAULT_CONFIG_PATH = Path("elections.toml")
+
+VALID_CATEGORIES = frozenset(
+    {"Consolidated", "Consolidated Primary", "General", "General Primary"}
+)
+VALID_ELECTION_TYPES = frozenset({"presidential", "midterm"})
 
 
 def _normalize_csv_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -68,19 +74,45 @@ def _year_from_filename(filename: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def _validate_config_entry(entry: dict, key: str) -> None:
+    """Raise ValueError if a config entry has invalid category or election_type."""
+    category = entry.get("category")
+    election_type = entry.get("election_type")
+
+    if category is not None and category not in VALID_CATEGORIES:
+        raise ValueError(
+            f"[elections.{key}] Invalid category {category!r}. "
+            f"Must be one of: {sorted(VALID_CATEGORIES)}"
+        )
+    if election_type is not None and election_type not in VALID_ELECTION_TYPES:
+        raise ValueError(
+            f"[elections.{key}] Invalid election_type {election_type!r}. "
+            f"Must be one of: {sorted(VALID_ELECTION_TYPES)}"
+        )
+
+
 def load_elections_config(config_path: Path = DEFAULT_CONFIG_PATH) -> list[dict]:
     """
     Read elections.toml and return a list of election config dicts.
 
     Each entry must have: name, source_file
     Optional: year (inferred from filename if absent),
-              election_date, results_last_updated
+              election_date, results_last_updated,
+              category, election_type,
+              ballots_cast, registered_voters
+
+    Raises ValueError if any entry has an invalid category or election_type.
     """
     if not config_path.exists():
         return []
     with open(config_path, "rb") as f:
-        config = tomllib.load(f)
-    return config.get("elections", [])
+        raw = tomllib.load(f)
+
+    entries = []
+    for key, cfg in raw.get("elections", {}).items():
+        _validate_config_entry(cfg, key)
+        entries.append(cfg)
+    return entries
 
 
 class ElectionLoader:
@@ -125,6 +157,14 @@ class ElectionLoader:
             if self._db.is_source_loaded(filename):
                 continue
 
+            # Election may already exist under this name (e.g. loaded from the
+            # historical Excel workbook). Register the CSV as a known source so
+            # future syncs skip it, but don't attempt to re-insert.
+            existing = self._db.get_election_by_name(entry["name"])
+            if existing is not None:
+                self._db.register_source(filename, existing.id)
+                continue
+
             path = sources_dir / filename
             if not path.exists():
                 print(f"  Skipping {filename}: file not found in {sources_dir}")
@@ -167,6 +207,10 @@ class ElectionLoader:
             election_date=date.fromisoformat(config["election_date"]) if config.get("election_date") else None,
             results_last_updated=date.fromisoformat(config["results_last_updated"]) if config.get("results_last_updated") else None,
             source_file=path.name,
+            category=config.get("category", ""),
+            election_type=config.get("election_type", ""),
+            ballots_cast=config.get("ballots_cast"),
+            registered_voters=config.get("registered_voters"),
         )
 
         known_before = self._db.get_known_contest_names()
@@ -215,6 +259,10 @@ class ElectionLoader:
                 election_date=date.fromisoformat(entry["election_date"]) if entry.get("election_date") else None,
                 results_last_updated=date.fromisoformat(entry["results_last_updated"]) if entry.get("results_last_updated") else None,
                 source_file=source_key,
+                category=entry.get("category", ""),
+                election_type=entry.get("election_type", ""),
+                ballots_cast=entry.get("ballots_cast"),
+                registered_voters=entry.get("registered_voters"),
             )
 
             known_before = self._db.get_known_contest_names()
