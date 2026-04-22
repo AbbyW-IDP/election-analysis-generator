@@ -1,10 +1,13 @@
 """
 generate_analysis.py
 --------------------
-Produce all analysis outputs and write them to an Excel workbook.
+Example script showing how to use ElectionAnalyzer to produce
+comparison outputs across elections.
+
+Modify this script to run whichever analyses you need.
 
 Usage:
-    python generate_analysis.py [output.xlsx]
+    uv run python generate_analysis.py [output.xlsx]
 """
 
 import sys
@@ -25,37 +28,35 @@ def main(
     with ElectionDatabase(db_path) as db:
         analyzer = ElectionAnalyzer(db)
 
-        totals = analyzer.get_party_year_totals()
-        comparable_all    = analyzer.get_comparable_contests(totals, [2014, 2018, 2022, 2026])
-        comparable_recent = analyzer.get_comparable_contests(totals, [2022, 2026])
+        # Show all available elections
+        print("Elections in database:")
+        print(analyzer.list_elections()[["id", "name", "year", "election_date"]].to_string(index=False))
+        print()
 
-        print(f"Comparable across all 4 years: {len(comparable_all)} contests")
-        print(f"Comparable across 2022 & 2026: {len(comparable_recent)} contests")
+        # Example analyses — edit to match your actual election names
+        elections = analyzer.list_elections()
+        if len(elections) < 2:
+            print("Need at least 2 elections loaded to run comparisons.")
+            return
 
-        turnout = analyzer.build_turnout()
+        names = elections["name"].tolist()
 
-        pct_change_22_26 = analyzer.build_vote_totals_pivot(
-            totals, comparable_recent,
-            years=[2022, 2026], base_year=2022, compare_year=2026,
-        )
-        party_share_22_26 = analyzer.build_party_share_pivot(
-            comparable_recent,
-            years=[2022, 2026], base_year=2022, compare_year=2026,
-        )
-        comparison_22_26 = pct_change_22_26.merge(party_share_22_26, on="contest")
+        # Most recent two elections
+        recent_a, recent_b = names[-2], names[-1]
+        print(f"Running pct_change_by_party: {recent_a!r} vs {recent_b!r}")
+        pct_change = analyzer.pct_change_by_party(recent_a, recent_b)
 
-        pct_change_14_26 = analyzer.build_vote_totals_pivot(
-            totals, comparable_all,
-            years=[2014, 2018, 2022, 2026], base_year=2014, compare_year=2026,
-        )
+        print(f"Running party_share across all elections")
+        share = analyzer.party_share(*names)
+
+        print(f"Running turnout across all elections")
+        turnout = analyzer.turnout()
 
         print(f"\nWriting to {output_path}...")
         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
             turnout.to_excel(writer, sheet_name="turnout")
-            pct_change_22_26.to_excel(writer, sheet_name="22-26 pct change by party", index=False)
-            party_share_22_26.to_excel(writer, sheet_name="22-26 party share", index=False)
-            comparison_22_26.to_excel(writer, sheet_name="22-26 comparison", index=False)
-            pct_change_14_26.to_excel(writer, sheet_name="14-26 pct change by party", index=False)
+            pct_change.to_excel(writer, sheet_name="pct change by party", index=False)
+            share.to_excel(writer, sheet_name="party share", index=False)
 
     print("Done.")
 

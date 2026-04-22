@@ -4,10 +4,13 @@ conftest.py
 Shared pytest fixtures for the dupage_elections test suite.
 """
 
+from datetime import date
+
 import pandas as pd
 import pytest
 
 from dupage_elections.db import ElectionDatabase
+from dupage_elections.models import Election
 
 
 @pytest.fixture
@@ -18,9 +21,22 @@ def db():
     database.close()
 
 
-def make_results_df(rows: list[dict]) -> pd.DataFrame:
+@pytest.fixture
+def sample_election():
+    """A minimal Election object for use in tests."""
+    return Election(
+        id=None,
+        name="2022 General Primary",
+        year=2022,
+        election_date=date(2022, 6, 28),
+        results_last_updated=date(2022, 7, 19),
+        source_file="2022-general-primary.csv",
+    )
+
+
+def make_candidates_df(rows: list[dict]) -> pd.DataFrame:
     """
-    Build a minimal results DataFrame suitable for insert_results().
+    Build a minimal candidates DataFrame suitable for insert_election().
     Any omitted fields default to sensible values.
     """
     defaults = {
@@ -40,31 +56,34 @@ def make_results_df(rows: list[dict]) -> pd.DataFrame:
     return pd.DataFrame([{**defaults, **row} for row in rows])
 
 
-def seed_known_name(db: ElectionDatabase, name: str, year: int = 2022) -> None:
-    """Add a known contest name to the registry."""
-    db.register_contest_name(name, year)
-
-
-def seed_results(db: ElectionDatabase, rows: list[dict]) -> None:
-    """Insert rows directly into results via insert_results, bypassing file I/O."""
+def seed_election(
+    db: ElectionDatabase,
+    name: str,
+    year: int,
+    rows: list[dict],
+    election_date: date | None = None,
+) -> Election:
+    """
+    Insert an Election with candidate rows directly into the database.
+    Contest names are pre-registered so they aren't flagged as unknown.
+    """
     from dupage_elections.normalize import normalize_contest_name
-    for i, row in enumerate(rows, start=1):
-        df = pd.DataFrame([{
-            "contest_name_raw": row.get("contest_name", row.get("contest_name_raw", "")),
-            "line_number": row.get("line_number", i),
-            "choice_name": row.get("choice_name", "Candidate"),
-            "party": row.get("party"),
-            "total_votes": row.get("total_votes", 0),
-            "percent_of_votes": row.get("percent_of_votes", 0),
-            "registered_voters": row.get("registered_voters", 10000),
-            "ballots_cast": row.get("ballots_cast", 5000),
-            "num_precinct_total": row.get("num_precinct_total", 10),
-            "num_precinct_rptg": row.get("num_precinct_rptg", 10),
-            "over_votes": row.get("over_votes", 0),
-            "under_votes": row.get("under_votes", 0),
-        }])
-        # Pre-register the contest name so it isn't flagged as unknown
-        contest_name_raw = row.get("contest_name", row.get("contest_name_raw", ""))
-        normalized = normalize_contest_name(contest_name_raw)
-        db.register_contest_name(normalized, row["year"])
-        db.insert_results(df, row["year"], "test_source.csv")
+
+    df = make_candidates_df(rows)
+
+    # Pre-register all contest names to suppress flags
+    for raw in df["contest_name_raw"].unique():
+        normalized = normalize_contest_name(raw)
+        db.register_contest_name(normalized, year)
+
+    election = Election(
+        id=None,
+        name=name,
+        year=year,
+        election_date=election_date,
+        results_last_updated=None,
+        source_file=f"{name.lower().replace(' ', '-')}.csv",
+    )
+    election = db.insert_election(election, df)
+    db.register_source(election.source_file, election.id)
+    return election

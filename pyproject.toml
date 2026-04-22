@@ -2,9 +2,9 @@
 name = "dupage-elections"
 version = "0.1.0"
 description = "Analysis of partisan primary election results in DuPage County, IL"
-requires-python = ">=3.14"
+requires-python = ">=3.10"
 dependencies = [
-    "pandas>=3.0",
+    "pandas>=2.0",
     "openpyxl>=3.1",
 ]
 
@@ -18,19 +18,16 @@ review-flags      = "dupage_elections:review_flags.main"
 requires      = ["hatchling"]
 build-backend = "hatchling.build"
 
-[dependency-groups]
-dev = [
-    "pytest>=9.0.3",
-    "pytest-cov>=7.1.0",
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pytest-xdist>=3.0",
 ]
 
-[tool.pytest]
-testpaths = ["tests"]
-addopts = [
-    "--cov=dupage_elections",
-    "--cov-report=term-missing",
-    "--cache-clear",
-]
+[tool.pytest.ini_options]
+testpaths    = ["tests"]
+addopts      = "-ra -q"
 
 [tool.coverage.run]
 source = ["dupage_elections"]

@@ -1,24 +1,30 @@
 """
 loader.py
 ---------
-ElectionLoader: reads source files and loads them into an ElectionDatabase.
+ElectionLoader: reads election config and CSV source files, loads them
+into an ElectionDatabase.
 
-Supports:
-  - CSV files (raw election exports)
-  - Excel files with a 'data' tab (historical workbook)
-  - Automatic syncing of a sources/ directory
+Elections are configured in elections.toml. Each entry maps a CSV filename
+to an election name, year, and dates. The loader reads the toml, checks
+which sources haven't been loaded yet, and loads any new ones.
 """
 
 import re
+import tomllib
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
 
 from dupage_elections.db import ElectionDatabase
+from dupage_elections.models import Election
+
+DEFAULT_SOURCES_DIR = Path("sources")
+DEFAULT_CONFIG_PATH = Path("elections.toml")
 
 
 def _normalize_csv_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Normalize CSV column names and rename to internal conventions."""
+    """Normalize CSV column names to internal conventions."""
     df = df.copy()
     df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
     return df.rename(columns={
@@ -51,119 +57,172 @@ def _normalize_excel_columns(df: pd.DataFrame) -> pd.DataFrame:
 def _year_from_filename(filename: str) -> int | None:
     """
     Extract the election year from a filename.
-
-    Tries two strategies in order:
-      1. A 4-digit year at the very start of the filename stem, e.g.
-         '2022-general-primary-2022-07-19.csv' -> 2022
-      2. The first 20xx year anywhere in the filename, e.g.
-         'summary_2026.csv' -> 2026
-
-    Returns None if no year found.
+    Tries the start of the stem first (handles date-suffixed names like
+    2022-general-primary-2022-07-19.csv), then falls back to first 20xx match.
     """
     stem = Path(filename).stem
-    # Strategy 1: year at the start of the stem (handles date-suffixed names)
     match = re.match(r'(20\d{2})', stem)
     if match:
         return int(match.group(1))
-    # Strategy 2: first 20xx year anywhere in the name
     match = re.search(r'(20\d{2})', stem)
     return int(match.group(1)) if match else None
+
+
+def load_elections_config(config_path: Path = DEFAULT_CONFIG_PATH) -> list[dict]:
+    """
+    Read elections.toml and return a list of election config dicts.
+
+    Each entry must have: name, source_file
+    Optional: year (inferred from filename if absent),
+              election_date, results_last_updated
+    """
+    if not config_path.exists():
+        return []
+    with open(config_path, "rb") as f:
+        config = tomllib.load(f)
+    return config.get("elections", [])
 
 
 class ElectionLoader:
     """
     Reads election source files and loads them into an ElectionDatabase.
 
-    Args:
-        db: An ElectionDatabase instance to load data into.
+    Elections are defined in elections.toml. Call sync() to load any
+    elections defined in the config that haven't been loaded yet.
 
     Usage:
         loader = ElectionLoader(db)
-        loader.load_csv(Path("sources/summary_2026.csv"), year=2026)
-        loader.load_excel(Path("comparison_14-26.xlsx"))
-        loader.sync_sources(Path("sources/"))
+        loader.sync(sources_dir=Path("sources"), config_path=Path("elections.toml"))
     """
 
     def __init__(self, db: ElectionDatabase) -> None:
         self._db = db
 
-    def load_csv(self, path: Path, year: int) -> tuple[int, list[str]]:
+    def sync(
+        self,
+        sources_dir: Path = DEFAULT_SOURCES_DIR,
+        config_path: Path = DEFAULT_CONFIG_PATH,
+    ) -> dict[str, tuple[Election, list[str]]]:
+        """
+        Scan elections.toml for elections whose source files haven't been
+        loaded yet and load them.
+
+        Returns:
+            Dict mapping source filename -> (Election, new_unrecognized_contest_names)
+            for each newly loaded file.
+        """
+        if not sources_dir.exists():
+            raise FileNotFoundError(f"Sources directory not found: {sources_dir}")
+
+        configs = load_elections_config(config_path)
+        if not configs:
+            print(f"  No elections found in {config_path}")
+            return {}
+
+        results = {}
+        for entry in configs:
+            filename = entry["source_file"]
+            if self._db.is_source_loaded(filename):
+                continue
+
+            path = sources_dir / filename
+            if not path.exists():
+                print(f"  Skipping {filename}: file not found in {sources_dir}")
+                continue
+
+            election, new_names = self.load_csv(path, entry)
+            results[filename] = (election, new_names)
+
+        return results
+
+    def load_csv(
+        self,
+        path: Path,
+        config: dict,
+    ) -> tuple[Election, list[str]]:
         """
         Load a single election CSV into the database.
 
         Args:
-            path: Path to the CSV file.
-            year: Election year for this file.
+            path:   Path to the CSV file.
+            config: Dict from elections.toml with at minimum 'name' and 'source_file'.
 
         Returns:
-            (rows_inserted, new_unrecognized_contest_names)
+            (Election, new_unrecognized_contest_names)
         """
         try:
             df = pd.read_csv(path, encoding="utf-8")
         except UnicodeDecodeError:
             df = pd.read_csv(path, encoding="windows-1252")
         df = _normalize_csv_columns(df)
-        inserted, new_names = self._db.insert_results(df, year, path.name)
-        self._db.register_source(path.name, year)
-        return inserted, new_names
 
-    def load_excel(self, path: Path) -> dict[int, tuple[int, list[str]]]:
+        year = config.get("year") or _year_from_filename(path.name)
+        if year is None:
+            raise ValueError(f"Could not determine year for {path.name}. Add 'year' to elections.toml.")
+
+        election = Election(
+            id=None,
+            name=config["name"],
+            year=year,
+            election_date=date.fromisoformat(config["election_date"]) if config.get("election_date") else None,
+            results_last_updated=date.fromisoformat(config["results_last_updated"]) if config.get("results_last_updated") else None,
+            source_file=path.name,
+        )
+
+        known_before = self._db.get_known_contest_names()
+        election = self._db.insert_election(election, df)
+        known_after = self._db.get_known_contest_names()
+        new_names = sorted(known_after - known_before)
+
+        self._db.register_source(path.name, election.id)
+        return election, new_names
+
+    def load_excel(
+        self,
+        path: Path,
+        config_entries: list[dict],
+    ) -> dict[str, tuple[Election, list[str]]]:
         """
-        Load the historical Excel workbook (all years in the 'data' tab).
-
-        Loads each year separately so contest name registration is year-aware.
+        Load the historical Excel workbook. Each year's data is treated as
+        a separate election using the matching entry from config_entries.
 
         Args:
-            path: Path to the Excel workbook.
+            path:           Path to the Excel workbook.
+            config_entries: List of config dicts from elections.toml, one per year.
 
         Returns:
-            Dict mapping year -> (rows_inserted, new_unrecognized_contest_names)
+            Dict mapping election name -> (Election, new_unrecognized_contest_names)
         """
         df = pd.read_excel(path, sheet_name="data")
         df = _normalize_excel_columns(df)
 
+        config_by_year = {int(e["year"]): e for e in config_entries if "year" in e}
         results = {}
+
         for year, group in df.groupby("year"):
-            inserted, new_names = self._db.insert_results(
-                group.copy(), int(year), path.name
+            year = int(year)
+            entry = config_by_year.get(year, {})
+            name = entry.get("name", f"{year} Election")
+            source_key = f"{path.name}:{year}"
+
+            if self._db.is_source_loaded(source_key):
+                continue
+
+            election = Election(
+                id=None,
+                name=name,
+                year=year,
+                election_date=date.fromisoformat(entry["election_date"]) if entry.get("election_date") else None,
+                results_last_updated=date.fromisoformat(entry["results_last_updated"]) if entry.get("results_last_updated") else None,
+                source_file=source_key,
             )
-            self._db.register_source(f"{path.name}:{year}", int(year))
-            results[int(year)] = (inserted, new_names)
-        return results
 
-    def sync_sources(self, sources_dir: Path) -> dict[str, tuple[int, list[str]]]:
-        """
-        Scan a directory for CSV source files and load any that haven't
-        been loaded yet. Files are identified by name, so renaming a file
-        will cause it to be reloaded. Database entries from previously
-        loaded files are never removed.
+            known_before = self._db.get_known_contest_names()
+            election = self._db.insert_election(election, group.copy())
+            known_after = self._db.get_known_contest_names()
+            new_names = sorted(known_after - known_before)
 
-        CSV filenames must contain a 4-digit year (e.g. summary_2026.csv).
-        Files without a recognizable year are skipped with a warning.
-
-        Args:
-            sources_dir: Path to the directory containing CSV source files.
-
-        Returns:
-            Dict mapping filename -> (rows_inserted, new_unrecognized_contest_names)
-            for each newly loaded file. Already-loaded files are not included.
-        """
-        if not sources_dir.exists():
-            raise FileNotFoundError(f"Sources directory not found: {sources_dir}")
-
-        results = {}
-        csv_files = sorted(sources_dir.glob("*.csv"))
-
-        for path in csv_files:
-            if self._db.is_source_loaded(path.name):
-                continue
-
-            year = _year_from_filename(path.name)
-            if year is None:
-                print(f"  Skipping {path.name}: could not determine year from filename.")
-                continue
-
-            inserted, new_names = self.load_csv(path, year)
-            results[path.name] = (inserted, new_names)
+            self._db.register_source(source_key, election.id)
+            results[name] = (election, new_names)
 
         return results
