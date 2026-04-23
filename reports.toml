@@ -41,3 +41,9 @@ elections = [
 # sheet           = "22-26 all contests"
 # elections       = ["2022 General Primary", "2026 General Primary"]
 # comparable_only = false
+
+[[reports.primary-comparison.analyses]]
+analysis  = "aggregated_csv"
+sheet     = "raw data"
+elections = ["2022 General Primary", "2026 General Primary"]
+# elections omitted → includes all elections in the database

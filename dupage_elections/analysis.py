@@ -8,6 +8,8 @@ Analyses operate on election names or IDs and always return DataFrames.
 Contests are matched across elections by normalized contest name.
 """
 
+from datetime import date
+
 import pandas as pd
 
 from dupage_elections.db import ElectionDatabase
@@ -289,7 +291,9 @@ class ElectionAnalyzer:
         pivot = pivot.reset_index()
 
         # Add a percentage-point change column per party (last minus first election)
-        first, last = resolved[0], resolved[-1]
+        # Sort by date to find endpoints regardless of the order passed in
+        by_date = sorted(resolved, key=lambda e: (e.election_date or date(e.year, 1, 1)))
+        first, last = by_date[0], by_date[-1]
         for party in parties:
             col_first = f"{party} share {first.name}"
             col_last  = f"{party} share {last.name}"

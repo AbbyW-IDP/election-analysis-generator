@@ -307,7 +307,7 @@ class TestPartyShare:
         assert abs(row["REP pp change"] - (-0.20)) < 1e-6
 
     def test_pp_change_is_last_minus_first(self, db):
-        # With four elections, pp change should be 2026 minus 2014, not 2026 minus 2022
+        # pp change should be 2026 minus 2014 regardless of the order elections are passed in
         for year, dem, rep in [(2014, 3000, 7000), (2018, 4000, 6000),
                                (2022, 5000, 5000), (2026, 6000, 4000)]:
             seed_election(db, f"{year} General Primary", year, [
@@ -315,9 +315,10 @@ class TestPartyShare:
                 {"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "REP", "total_votes": rep},
             ])
         analyzer = ElectionAnalyzer(db)
+        # Pass elections in reverse chronological order to prove sorting works
         result = analyzer.party_share(
-            "2014 General Primary", "2018 General Primary",
-            "2022 General Primary", "2026 General Primary",
+            "2026 General Primary", "2022 General Primary",
+            "2018 General Primary", "2014 General Primary",
         )
         row = result[result["contest"] == "FOR SENATOR"].iloc[0]
         # DEM: 0.30 in 2014, 0.60 in 2026 → +0.30

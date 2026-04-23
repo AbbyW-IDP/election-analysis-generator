@@ -9,7 +9,7 @@
 name                 = "2014 General Primary"
 year                 = 2014
 election_date        = "2014-03-18"
-results_last_updated = "2014-04-07"
+results_last_updated = "2018-03-13"
 category             = "General Primary"
 election_type        = "midterm"
 source_file          = "2014-general-primary-2018-03-18.csv"
@@ -41,7 +41,7 @@ ballots_cast         = 145051
 [elections.2026-general-primary]
 name                 = "2026 General Primary"
 year                 = 2026
-election_date        = "2026-04-07"
+election_date        = "2026-03-17"
 results_last_updated = "2026-04-07"
 category             = "General Primary"
 election_type        = "midterm"
