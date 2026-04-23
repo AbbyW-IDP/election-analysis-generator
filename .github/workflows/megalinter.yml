@@ -1,0 +1,44 @@
+name: MegaLinter
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+env:
+  # Apply fixes and commit them back on push to main
+  APPLY_FIXES: all
+  APPLY_FIXES_EVENT: push
+  APPLY_FIXES_MODE: commit
+
+jobs:
+  megalinter:
+    name: Run MegaLinter
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          # Full fetch depth needed for auto-fix commits
+          fetch-depth: 0
+
+      - name: Run MegaLinter
+        uses: oxsecurity/megalinter@v9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Scope linting to Python and config files relevant to the project
+          ENABLE_LINTERS: >-
+            PYTHON_RUFF,
+            PYTHON_RUFF_FORMAT,
+            PYTHON_MYPY,
+            PYTHON_BANDIT,
+            REPOSITORY_CHECKOV,
+            YAML_YAMLLINT,
+            MARKDOWN_MARKDOWNLINT
