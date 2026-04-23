@@ -41,7 +41,7 @@ Data are sourced from [DuPage County Election Results](https://www.dupageresults
 
 ### Requirements
 
-- Python 3.14+
+- Python 3.11+
 - [uv](https://github.com/astral-sh/uv) for dependency management
 
 ### Install
@@ -52,17 +52,13 @@ uv sync
 
 ### First-time setup
 
-Run `setup-db` once to create `elections.db` from the historical Excel workbook. It will also sync any CSVs already defined in `elections.toml`:
+Add your election CSVs to `sources/` and define them in `elections.toml`, then run:
 
 ```bash
-uv run setup-db
+uv run sync-sources
 ```
 
-By default it looks for `comparison_14-26_official.xlsx` in the current directory. You can pass a custom path:
-
-```bash
-uv run setup-db path/to/workbook.xlsx
-```
+This loads all elections defined in `elections.toml` that haven't been loaded yet and creates `elections.db`.
 
 ---
 
@@ -194,7 +190,7 @@ When a flag is marked `mapped`, an entry is added to `contest_name_overrides` li
 
 **`flags.py`** contains `export_flags()`, `import_flags()`, and `review_flags()` — all flag-management logic in one place.
 
-**`cli.py`** contains the entry points registered in `[project.scripts]`.
+**`cli.py`** contains the entry points registered in `[project.scripts]`: `sync-sources`, `generate-analysis`, `export-flags`, `import-flags`, `review-flags`.
 
 ---
 

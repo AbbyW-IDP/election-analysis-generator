@@ -9,7 +9,6 @@ dependencies = [
 ]
 
 [project.scripts]
-setup-db          = "dupage_elections.cli:setup_db"
 sync-sources      = "dupage_elections.cli:sync_sources"
 generate-analysis = "dupage_elections.cli:generate_analysis"
 export-flags      = "dupage_elections.cli:export_flags_cmd"
@@ -26,7 +25,7 @@ dev = [
     "pytest-cov>=5.0",
 ]
 
-[tool.pytest]
+[tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = [
     "--cov=dupage_elections",

@@ -6,7 +6,7 @@ into an ElectionDatabase.
 
 Elections are configured in elections.toml. Each entry maps a CSV filename
 to an election name, year, dates, category, election_type, and turnout
-figures. The loader reads the toml, checks which sources haven't been
+figures. The loader reads the toml, checks which sources have not been
 loaded yet, and loads any new ones.
 """
 
@@ -33,35 +33,11 @@ def _normalize_csv_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Normalize CSV column names to internal conventions."""
     df = df.copy()
     df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
-    return df.rename(
-        columns={
-            "contest_name": "contest_name_raw",
-            "party_name": "party",
-        }
-    )
+    return df.rename(columns={
+        "contest_name": "contest_name_raw",
+        "party_name":   "party",
+    })
 
-
-def _normalize_excel_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Normalize columns from the historical Excel workbook's data tab.
-    Uses contestMixed (original mixed-case name) as the raw contest name.
-    """
-    df = df.copy()
-    df["contest_name_raw"] = df["contestMixed"]
-    return df.rename(
-        columns={
-            "line number": "line_number",
-            "choice name": "choice_name",
-            "total votes": "total_votes",
-            "percent of votes": "percent_of_votes",
-            "registered voters": "registered_voters",
-            "ballots cast": "ballots_cast",
-            "num precinct total": "num_precinct_total",
-            "num precinct rptg": "num_precinct_rptg",
-            "over votes": "over_votes",
-            "under votes": "under_votes",
-        }
-    )
 
 
 def _year_from_filename(filename: str) -> int | None:
@@ -71,10 +47,10 @@ def _year_from_filename(filename: str) -> int | None:
     2022-general-primary-2022-07-19.csv), then falls back to first 20xx match.
     """
     stem = Path(filename).stem
-    match = re.match(r"(20\d{2})", stem)
+    match = re.match(r'(20\d{2})', stem)
     if match:
         return int(match.group(1))
-    match = re.search(r"(20\d{2})", stem)
+    match = re.search(r'(20\d{2})', stem)
     return int(match.group(1)) if match else None
 
 
@@ -161,9 +137,8 @@ class ElectionLoader:
             if self._db.is_source_loaded(filename):
                 continue
 
-            # Election may already exist under this name (e.g. loaded from the
-            # historical Excel workbook). Register the CSV as a known source so
-            # future syncs skip it, but don't attempt to re-insert.
+            # Election may already exist under this name. Register the CSV as a
+            # known source so future syncs skip it, but don't re-insert.
             existing = self._db.get_election_by_name(entry["name"])
             if existing is not None:
                 self._db.register_source(filename, existing.id)
@@ -202,20 +177,14 @@ class ElectionLoader:
 
         year = config.get("year") or _year_from_filename(path.name)
         if year is None:
-            raise ValueError(
-                f"Could not determine year for {path.name}. Add 'year' to elections.toml."
-            )
+            raise ValueError(f"Could not determine year for {path.name}. Add 'year' to elections.toml.")
 
         election = Election(
             id=None,
             name=config["name"],
             year=year,
-            election_date=date.fromisoformat(config["election_date"])
-            if config.get("election_date")
-            else None,
-            results_last_updated=date.fromisoformat(config["results_last_updated"])
-            if config.get("results_last_updated")
-            else None,
+            election_date=date.fromisoformat(config["election_date"]) if config.get("election_date") else None,
+            results_last_updated=date.fromisoformat(config["results_last_updated"]) if config.get("results_last_updated") else None,
             source_file=path.name,
             category=config.get("category", ""),
             election_type=config.get("election_type", ""),
@@ -231,60 +200,3 @@ class ElectionLoader:
         self._db.register_source(path.name, election.id)
         return election, new_names
 
-    def load_excel(
-        self,
-        path: Path,
-        config_entries: list[dict],
-    ) -> dict[str, tuple[Election, list[str]]]:
-        """
-        Load the historical Excel workbook. Each year's data is treated as
-        a separate election using the matching entry from config_entries.
-
-        Args:
-            path:           Path to the Excel workbook.
-            config_entries: List of config dicts from elections.toml, one per year.
-
-        Returns:
-            Dict mapping election name -> (Election, new_unrecognized_contest_names)
-        """
-        df = pd.read_excel(path, sheet_name="data")
-        df = _normalize_excel_columns(df)
-
-        config_by_year = {int(e["year"]): e for e in config_entries if "year" in e}
-        results = {}
-
-        for year, group in df.groupby("year"):
-            year = int(year)
-            entry = config_by_year.get(year, {})
-            name = entry.get("name", f"{year} Election")
-            source_key = f"{path.name}:{year}"
-
-            if self._db.is_source_loaded(source_key):
-                continue
-
-            election = Election(
-                id=None,
-                name=name,
-                year=year,
-                election_date=date.fromisoformat(entry["election_date"])
-                if entry.get("election_date")
-                else None,
-                results_last_updated=date.fromisoformat(entry["results_last_updated"])
-                if entry.get("results_last_updated")
-                else None,
-                source_file=source_key,
-                category=entry.get("category", ""),
-                election_type=entry.get("election_type", ""),
-                ballots_cast=entry.get("ballots_cast"),
-                registered_voters=entry.get("registered_voters"),
-            )
-
-            known_before = self._db.get_known_contest_names()
-            election = self._db.insert_election(election, group.copy())
-            known_after = self._db.get_known_contest_names()
-            new_names = sorted(known_after - known_before)
-
-            self._db.register_source(source_key, election.id)
-            results[name] = (election, new_names)
-
-        return results
