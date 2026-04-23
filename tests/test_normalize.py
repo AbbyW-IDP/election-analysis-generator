@@ -1,20 +1,18 @@
 """
-Tests for dupage_elections.normalize
+Tests for election_analysis.normalize
 """
 
 import pytest
-from dupage_elections.normalize import normalize_contest_name, normalize_party
+from election_analysis.normalize import normalize_contest_name, normalize_party
 
 
 class TestNormalizeContestName:
+
     def test_uppercase(self):
         assert normalize_contest_name("for attorney general") == "FOR ATTORNEY GENERAL"
 
     def test_strips_vote_for_parenthetical(self):
-        assert (
-            normalize_contest_name("FOR ATTORNEY GENERAL (Vote For 1)")
-            == "FOR ATTORNEY GENERAL"
-        )
+        assert normalize_contest_name("FOR ATTORNEY GENERAL (Vote For 1)") == "FOR ATTORNEY GENERAL"
 
     def test_strips_vacancy_parenthetical(self):
         result = normalize_contest_name(
@@ -23,10 +21,7 @@ class TestNormalizeContestName:
         assert result == "FOR JUDGE OF THE CIRCUIT COURT"
 
     def test_strips_party_suffix_d_star(self):
-        assert (
-            normalize_contest_name("United States Senator - D*")
-            == "UNITED STATES SENATOR"
-        )
+        assert normalize_contest_name("United States Senator - D*") == "UNITED STATES SENATOR"
 
     def test_strips_party_suffix_r_star(self):
         assert normalize_contest_name("FOR SENATOR - R*") == "FOR SENATOR"
@@ -36,25 +31,19 @@ class TestNormalizeContestName:
 
     def test_strips_full_year_term(self):
         assert (
-            normalize_contest_name(
-                "FOR MEMBER OF THE COUNTY BOARD DISTRICT 1 FULL 4 YEAR TERM (Vote For 1)"
-            )
+            normalize_contest_name("FOR MEMBER OF THE COUNTY BOARD DISTRICT 1 FULL 4 YEAR TERM (Vote For 1)")
             == "FOR MEMBER OF THE COUNTY BOARD DISTRICT 1"
         )
 
     def test_strips_full_2_year_term(self):
         assert (
-            normalize_contest_name(
-                "FOR MEMBER OF THE COUNTY BOARD DISTRICT 1 FULL 2 YEAR TERM (Vote For 1)"
-            )
+            normalize_contest_name("FOR MEMBER OF THE COUNTY BOARD DISTRICT 1 FULL 2 YEAR TERM (Vote For 1)")
             == "FOR MEMBER OF THE COUNTY BOARD DISTRICT 1"
         )
 
     def test_strips_year_term_with_party_suffix(self):
         assert (
-            normalize_contest_name(
-                "FOR MEMBER OF THE COUNTY BOARD DISTRICT 1 4 Year Term - R"
-            )
+            normalize_contest_name("FOR MEMBER OF THE COUNTY BOARD DISTRICT 1 4 Year Term - R")
             == "FOR MEMBER OF THE COUNTY BOARD DISTRICT 1"
         )
 
@@ -84,25 +73,19 @@ class TestNormalizeContestName:
 
     def test_ordinal_81st(self):
         assert (
-            normalize_contest_name(
-                "FOR REPRESENTATIVE IN THE GENERAL ASSEMBLY 81ST REPRESENTATIVE DISTRICT (Vote For 1)"
-            )
+            normalize_contest_name("FOR REPRESENTATIVE IN THE GENERAL ASSEMBLY 81ST REPRESENTATIVE DISTRICT (Vote For 1)")
             == "FOR REPRESENTATIVE IN THE GENERAL ASSEMBLY EIGHTY-FIRST REPRESENTATIVE DISTRICT"
         )
 
     def test_ordinal_3rd(self):
         assert (
-            normalize_contest_name(
-                "FOR REPRESENTATIVE IN CONGRESS 3RD CONGRESSIONAL DISTRICT (Vote For 1)"
-            )
+            normalize_contest_name("FOR REPRESENTATIVE IN CONGRESS 3RD CONGRESSIONAL DISTRICT (Vote For 1)")
             == "FOR REPRESENTATIVE IN CONGRESS THIRD CONGRESSIONAL DISTRICT"
         )
 
     def test_preserves_plain_integers(self):
         assert (
-            normalize_contest_name(
-                "FOR MEMBER OF THE COUNTY BOARD DISTRICT 1 (Vote For 1)"
-            )
+            normalize_contest_name("FOR MEMBER OF THE COUNTY BOARD DISTRICT 1 (Vote For 1)")
             == "FOR MEMBER OF THE COUNTY BOARD DISTRICT 1"
         )
 
@@ -113,12 +96,11 @@ class TestNormalizeContestName:
         )
 
     def test_whitespace_trimmed(self):
-        assert (
-            normalize_contest_name("  FOR ATTORNEY GENERAL  ") == "FOR ATTORNEY GENERAL"
-        )
+        assert normalize_contest_name("  FOR ATTORNEY GENERAL  ") == "FOR ATTORNEY GENERAL"
 
 
 class TestNormalizeParty:
+
     def test_d_to_dem(self):
         assert normalize_party("D") == "DEM"
 
@@ -145,7 +127,6 @@ class TestNormalizeParty:
 
     def test_nan_returns_none(self):
         import math
-
         assert normalize_party(float("nan")) is None
 
     def test_unknown_party_returned_as_is(self):

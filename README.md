@@ -1,8 +1,8 @@
-# DuPage County Election Analysis
+# Election Analysis Generator
 
-Analysis of partisan primary election results in DuPage County, Illinois across multiple election cycles (2014, 2018, 2022, 2026).
+A tool for loading, normalising, and analysing partisan primary election results across multiple election cycles.
 
-Data are sourced from [DuPage County Election Results](https://www.dupageresults.gov/IL/DuPage/) and cover candidate-level vote totals by contest, party, and year.
+Current data covers DuPage County, Illinois (2014, 2018, 2022, 2026), sourced from [DuPage County Election Results](https://www.dupageresults.gov/IL/DuPage/).
 
 ---
 
@@ -17,7 +17,7 @@ Data are sourced from [DuPage County Election Results](https://www.dupageresults
 ├── sources/                    # Drop election CSVs here to load them
 │   ├── 2022-general-primary-2022-07-19.csv
 │   └── 2026-general-primary-2026-04-07.csv
-├── dupage_elections/           # Package — all logic lives here
+├── election_analysis/           # Package — all logic lives here
 │   ├── models.py               # Dataclasses: Election, Contest, Candidate
 │   ├── db.py                   # ElectionDatabase: all SQLite operations
 │   ├── loader.py               # ElectionLoader: reads config + CSVs into DB

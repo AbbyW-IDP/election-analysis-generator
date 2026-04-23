@@ -1,5 +1,5 @@
 """
-Tests for dupage_elections.loader (ElectionLoader)
+Tests for election_analysis.loader (ElectionLoader)
 """
 
 import textwrap
@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from dupage_elections.loader import (
+from election_analysis.loader import (
     ElectionLoader,
     _normalize_csv_columns,
     _year_from_filename,

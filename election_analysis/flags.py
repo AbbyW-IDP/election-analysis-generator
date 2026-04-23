@@ -1,5 +1,5 @@
 """
-dupage_elections/flags.py
+election_analysis/flags.py
 -------------------------
 All logic for exporting, importing, and interactively reviewing unresolved
 contest name flags.
@@ -39,7 +39,6 @@ VALID_STATUSES = frozenset({"accepted", "mapped", "ignored", "unreviewed"})
 # Export
 # ---------------------------------------------------------------------------
 
-
 def export_flags(
     db: ElectionDatabase,
     output_path: Path = DEFAULT_EXPORT_PATH,
@@ -67,14 +66,12 @@ def export_flags(
         return 0
 
     flags_df = pd.DataFrame(flags)[["id", "year", "contest_name_raw", "contest_name"]]
-    flags_df = flags_df.rename(
-        columns={
-            "id": "Flag ID",
-            "year": "Year",
-            "contest_name_raw": "Raw Name",
-            "contest_name": "Normalized Suggestion",
-        }
-    )
+    flags_df = flags_df.rename(columns={
+        "id": "Flag ID",
+        "year": "Year",
+        "contest_name_raw": "Raw Name",
+        "contest_name": "Normalized Suggestion",
+    })
     flags_df["Status"] = "unreviewed"
     flags_df["Override Target"] = ""
     flags_df["Notes"] = ""
@@ -109,9 +106,7 @@ def _format_flags_sheet(ws, df: pd.DataFrame) -> None:
         "Notes": 35,
     }
     for col_idx, col_name in enumerate(df.columns, 1):
-        ws.column_dimensions[get_column_letter(col_idx)].width = widths.get(
-            col_name, 20
-        )
+        ws.column_dimensions[get_column_letter(col_idx)].width = widths.get(col_name, 20)
 
     ws.freeze_panes = "A2"
 
@@ -128,7 +123,6 @@ def _format_known_sheet(ws) -> None:
 # ---------------------------------------------------------------------------
 # Import
 # ---------------------------------------------------------------------------
-
 
 def import_flags(
     db: ElectionDatabase,
@@ -172,18 +166,13 @@ def import_flags(
     if unrecognised:
         # Warn but continue — those rows will fall through to 'skipped'.
         import warnings
-
         warnings.warn(
             f"Unrecognised Status values will be skipped: {unrecognised}",
             stacklevel=2,
         )
 
     counts: dict[str, int] = {
-        "accepted": 0,
-        "mapped": 0,
-        "ignored": 0,
-        "skipped": 0,
-        "errors": 0,
+        "accepted": 0, "mapped": 0, "ignored": 0, "skipped": 0, "errors": 0,
     }
 
     for _, row in df.iterrows():
@@ -229,7 +218,6 @@ def import_flags(
 # Interactive review
 # ---------------------------------------------------------------------------
 
-
 def review_flags(db: ElectionDatabase) -> None:
     """Interactive CLI loop for resolving flags one at a time.
 
@@ -272,11 +260,9 @@ def review_flags(db: ElectionDatabase) -> None:
 
             elif choice == "m":
                 known = sorted(db.get_known_contest_names())
-                query = (
-                    input("  Search existing names (or Enter to list all): ")
-                    .strip()
-                    .lower()
-                )
+                query = input(
+                    "  Search existing names (or Enter to list all): "
+                ).strip().lower()
                 matches = [n for n in known if query in n.lower()] if query else known
 
                 if not matches:
@@ -295,7 +281,9 @@ def review_flags(db: ElectionDatabase) -> None:
                     continue
 
                 canonical = matches[int(idx) - 1]
-                note = input(f"  Note (optional, e.g. 'Renamed in {year}'): ").strip()
+                note = input(
+                    f"  Note (optional, e.g. 'Renamed in {year}'): "
+                ).strip()
                 db.add_override(raw_name, canonical, note or None)
                 db.resolve_flag(flag_id)
                 print(f"  ✓ Mapped to: {canonical}\n")

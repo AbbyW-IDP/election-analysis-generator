@@ -12,8 +12,8 @@ from datetime import date
 
 import pandas as pd
 
-from dupage_elections.db import ElectionDatabase
-from dupage_elections.models import Election
+from election_analysis.db import ElectionDatabase
+from election_analysis.models import Election
 
 
 def _resolve_elections(
@@ -39,9 +39,7 @@ def _resolve_elections(
                 raise ValueError(f"Election not found with id: {e}")
             resolved.append(obj)
         else:
-            raise TypeError(
-                f"Expected election name, id, or Election object; got {type(e)}"
-            )
+            raise TypeError(f"Expected election name, id, or Election object; got {type(e)}")
     return resolved
 
 
@@ -200,9 +198,7 @@ class ElectionAnalyzer:
             col_a = f"{party} {a.name}"
             col_b = f"{party} {b.name}"
             if col_a in pivot.columns and col_b in pivot.columns:
-                pivot[f"{party} % change"] = (pivot[col_b] - pivot[col_a]) / pivot[
-                    col_a
-                ]
+                pivot[f"{party} % change"] = (pivot[col_b] - pivot[col_a]) / pivot[col_a]
 
         # Order: contest, then per-party block of [a, b, % change]
         ordered = ["contest_name"]
@@ -296,11 +292,11 @@ class ElectionAnalyzer:
 
         # Add a percentage-point change column per party (last minus first election)
         # Sort by date to find endpoints regardless of the order passed in
-        by_date = sorted(resolved, key=lambda e: e.election_date or date(e.year, 1, 1))
+        by_date = sorted(resolved, key=lambda e: (e.election_date or date(e.year, 1, 1)))
         first, last = by_date[0], by_date[-1]
         for party in parties:
             col_first = f"{party} share {first.name}"
-            col_last = f"{party} share {last.name}"
+            col_last  = f"{party} share {last.name}"
             if col_first in pivot.columns and col_last in pivot.columns:
                 pivot[f"{party} pp change"] = pivot[col_last] - pivot[col_first]
 

@@ -17,8 +17,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from dupage_elections.db import ElectionDatabase
-from dupage_elections.models import Election
+from election_analysis.db import ElectionDatabase
+from election_analysis.models import Election
 
 DEFAULT_SOURCES_DIR = Path("sources")
 DEFAULT_CONFIG_PATH = Path("elections.toml")

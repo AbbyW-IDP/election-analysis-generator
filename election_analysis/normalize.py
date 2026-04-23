@@ -17,40 +17,19 @@ import pandas as pd
 # Ordinal words that appear in contest names (add more as needed).
 # Keys are lowercase; values are their spelled-out equivalents.
 ORDINAL_MAP: dict[str, str] = {
-    "1st": "first",
-    "2nd": "second",
-    "3rd": "third",
-    "4th": "fourth",
-    "5th": "fifth",
-    "6th": "sixth",
-    "7th": "seventh",
-    "8th": "eighth",
-    "9th": "ninth",
-    "10th": "tenth",
-    "11th": "eleventh",
-    "12th": "twelfth",
-    "21st": "twenty-first",
-    "22nd": "twenty-second",
-    "23rd": "twenty-third",
-    "24th": "twenty-fourth",
-    "39th": "thirty-ninth",
-    "41st": "forty-first",
-    "42nd": "forty-second",
-    "45th": "forty-fifth",
-    "48th": "forty-eighth",
-    "49th": "forty-ninth",
-    "50th": "fiftieth",
-    "56th": "fifty-sixth",
-    "65th": "sixty-fifth",
-    "77th": "seventy-seventh",
-    "81st": "eighty-first",
-    "82nd": "eighty-second",
-    "84th": "eighty-fourth",
-    "85th": "eighty-fifth",
+    "1st": "first", "2nd": "second", "3rd": "third", "4th": "fourth",
+    "5th": "fifth", "6th": "sixth", "7th": "seventh", "8th": "eighth",
+    "9th": "ninth", "10th": "tenth", "11th": "eleventh", "12th": "twelfth",
+    "21st": "twenty-first", "22nd": "twenty-second", "23rd": "twenty-third",
+    "24th": "twenty-fourth", "39th": "thirty-ninth", "41st": "forty-first",
+    "42nd": "forty-second", "45th": "forty-fifth", "48th": "forty-eighth",
+    "49th": "forty-ninth", "50th": "fiftieth", "56th": "fifty-sixth",
+    "65th": "sixty-fifth", "77th": "seventy-seventh", "81st": "eighty-first",
+    "82nd": "eighty-second", "84th": "eighty-fourth", "85th": "eighty-fifth",
 }
 
 _ORDINAL_PATTERN = re.compile(
-    r"\b(" + "|".join(re.escape(k) for k in ORDINAL_MAP) + r")\b",
+    r'\b(' + '|'.join(re.escape(k) for k in ORDINAL_MAP) + r')\b',
     flags=re.IGNORECASE,
 )
 
@@ -71,32 +50,28 @@ def normalize_contest_name(raw_name: str) -> str:
     name = raw_name.strip()
 
     # 1. Strip party suffixes (before uppercasing to catch mixed case)
-    name = re.sub(r"\s*-\s*[DR]\*?\s*$", "", name, flags=re.IGNORECASE)
+    name = re.sub(r'\s*-\s*[DR]\*?\s*$', '', name, flags=re.IGNORECASE)
 
     # 2. Strip trailing parentheticals; repeat to handle multiple/nested ones
     for _ in range(3):
-        name = re.sub(r"\s*\([^)]*\)\s*$", "", name).strip()
+        name = re.sub(r'\s*\([^)]*\)\s*$', '', name).strip()
 
     # 3. Strip term-length suffixes (with optional leading comma or dash)
     #    e.g. "District 1, 4 Year Term - R" -> "District 1"
-    name = re.sub(
-        r"[,]?\s*-?\s*Full\s+\d+\s+Year\s+Term\s*$", "", name, flags=re.IGNORECASE
-    ).strip()
-    name = re.sub(
-        r"[,]?\s*-?\s*\d+\s+Year\s+Term\s*$", "", name, flags=re.IGNORECASE
-    ).strip()
+    name = re.sub(r'[,]?\s*-?\s*Full\s+\d+\s+Year\s+Term\s*$', '', name, flags=re.IGNORECASE).strip()
+    name = re.sub(r'[,]?\s*-?\s*\d+\s+Year\s+Term\s*$', '', name, flags=re.IGNORECASE).strip()
 
     # 4. Uppercase
     name = name.upper()
 
     # 5. Gender-neutral titles
     replacements = [
-        (r"\bCOMMITTEEMAN\b", "COMMITTEEPERSON"),
-        (r"\bCOMMITTEEWOMAN\b", "COMMITTEEPERSON"),
-        (r"\bCONGRESSMAN\b", "CONGRESSPERSON"),
-        (r"\bCONGRESSWOMAN\b", "CONGRESSPERSON"),
-        (r"\bCHAIRMAN\b", "CHAIRPERSON"),
-        (r"\bCHAIRWOMAN\b", "CHAIRPERSON"),
+        (r'\bCOMMITTEEMAN\b',  'COMMITTEEPERSON'),
+        (r'\bCOMMITTEEWOMAN\b', 'COMMITTEEPERSON'),
+        (r'\bCONGRESSMAN\b',   'CONGRESSPERSON'),
+        (r'\bCONGRESSWOMAN\b', 'CONGRESSPERSON'),
+        (r'\bCHAIRMAN\b',      'CHAIRPERSON'),
+        (r'\bCHAIRWOMAN\b',    'CHAIRPERSON'),
     ]
     for pattern, replacement in replacements:
         name = re.sub(pattern, replacement, name)
@@ -116,12 +91,12 @@ def normalize_contest_name(raw_name: str) -> str:
 
 # CSVs use single-letter codes; Excel history uses full abbreviations.
 PARTY_MAP: dict[str, str] = {
-    "D": "DEM",
-    "R": "REP",
-    "DEM": "DEM",
-    "REP": "REP",
-    "GP": "GP",
-    "WC": "WC",
+    'D':   'DEM',
+    'R':   'REP',
+    'DEM': 'DEM',
+    'REP': 'REP',
+    'GP':  'GP',
+    'WC':  'WC',
 }
 
 

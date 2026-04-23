@@ -1,7 +1,7 @@
 """
 conftest.py
 -----------
-Shared pytest fixtures for the dupage_elections test suite.
+Shared pytest fixtures for the election_analysis test suite.
 """
 
 from datetime import date
@@ -9,8 +9,8 @@ from datetime import date
 import pandas as pd
 import pytest
 
-from dupage_elections.db import ElectionDatabase
-from dupage_elections.models import Election
+from election_analysis.db import ElectionDatabase
+from election_analysis.models import Election
 
 
 @pytest.fixture
@@ -71,7 +71,7 @@ def seed_election(
     Insert an Election with candidate rows directly into the database.
     Contest names are pre-registered so they aren't flagged as unknown.
     """
-    from dupage_elections.normalize import normalize_contest_name
+    from election_analysis.normalize import normalize_contest_name
 
     df = make_candidates_df(rows)
 

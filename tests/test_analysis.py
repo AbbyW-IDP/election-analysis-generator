@@ -1,5 +1,5 @@
 """
-Tests for dupage_elections.analysis (ElectionAnalyzer)
+Tests for election_analysis.analysis (ElectionAnalyzer)
 """
 
 from datetime import date
@@ -7,15 +7,14 @@ from datetime import date
 import pytest
 import pandas as pd
 
-from dupage_elections.analysis import ElectionAnalyzer
-from dupage_elections.models import Election
+from election_analysis.analysis import ElectionAnalyzer
+from election_analysis.models import Election
 from tests.conftest import seed_election
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
 
 @pytest.fixture
 def db_with_two_elections(db):
@@ -25,77 +24,19 @@ def db_with_two_elections(db):
       - COUNTY CLERK: DEM only in 2026 (not comparable)
       - REFERENDUM: no party (legislation, excluded from analysis)
     """
-    seed_election(
-        db,
-        "2022 General Primary",
-        2022,
-        [
-            {
-                "contest_name_raw": "FOR ATTORNEY GENERAL (Vote For 1)",
-                "party": "DEM",
-                "total_votes": 68000,
-                "registered_voters": 636000,
-                "ballots_cast": 145000,
-            },
-            {
-                "contest_name_raw": "FOR ATTORNEY GENERAL (Vote For 1)",
-                "party": "REP",
-                "total_votes": 63000,
-                "registered_voters": 636000,
-                "ballots_cast": 145000,
-            },
-            {
-                "contest_name_raw": "FOR COUNTY CLERK (Vote For 1)",
-                "party": "DEM",
-                "total_votes": 65000,
-                "registered_voters": 636000,
-                "ballots_cast": 145000,
-            },
-            {
-                "contest_name_raw": "FOR COUNTY CLERK (Vote For 1)",
-                "party": "REP",
-                "total_votes": 59000,
-                "registered_voters": 636000,
-                "ballots_cast": 145000,
-            },
-            {
-                "contest_name_raw": "Referendum Question 1 (Vote For 1)",
-                "party": None,
-                "total_votes": 80000,
-                "registered_voters": 636000,
-                "ballots_cast": 145000,
-            },
-        ],
-    )
-    seed_election(
-        db,
-        "2026 General Primary",
-        2026,
-        [
-            {
-                "contest_name_raw": "FOR ATTORNEY GENERAL (Vote For 1)",
-                "party": "DEM",
-                "total_votes": 100000,
-                "registered_voters": 636000,
-                "ballots_cast": 161000,
-            },
-            {
-                "contest_name_raw": "FOR ATTORNEY GENERAL (Vote For 1)",
-                "party": "REP",
-                "total_votes": 43000,
-                "registered_voters": 636000,
-                "ballots_cast": 161000,
-            },
-            {
-                "contest_name_raw": "FOR COUNTY CLERK (Vote For 1)",
-                "party": "DEM",
-                "total_votes": 95000,
-                "registered_voters": 636000,
-                "ballots_cast": 161000,
-            },
-            # REP missing for COUNTY CLERK in 2026 — not comparable
-        ],
-    )
+    seed_election(db, "2022 General Primary", 2022, [
+        {"contest_name_raw": "FOR ATTORNEY GENERAL (Vote For 1)", "party": "DEM", "total_votes": 68000, "registered_voters": 636000, "ballots_cast": 145000},
+        {"contest_name_raw": "FOR ATTORNEY GENERAL (Vote For 1)", "party": "REP", "total_votes": 63000, "registered_voters": 636000, "ballots_cast": 145000},
+        {"contest_name_raw": "FOR COUNTY CLERK (Vote For 1)",     "party": "DEM", "total_votes": 65000, "registered_voters": 636000, "ballots_cast": 145000},
+        {"contest_name_raw": "FOR COUNTY CLERK (Vote For 1)",     "party": "REP", "total_votes": 59000, "registered_voters": 636000, "ballots_cast": 145000},
+        {"contest_name_raw": "Referendum Question 1 (Vote For 1)", "party": None, "total_votes": 80000, "registered_voters": 636000, "ballots_cast": 145000},
+    ])
+    seed_election(db, "2026 General Primary", 2026, [
+        {"contest_name_raw": "FOR ATTORNEY GENERAL (Vote For 1)", "party": "DEM", "total_votes": 100000, "registered_voters": 636000, "ballots_cast": 161000},
+        {"contest_name_raw": "FOR ATTORNEY GENERAL (Vote For 1)", "party": "REP", "total_votes": 43000,  "registered_voters": 636000, "ballots_cast": 161000},
+        {"contest_name_raw": "FOR COUNTY CLERK (Vote For 1)",     "party": "DEM", "total_votes": 95000,  "registered_voters": 636000, "ballots_cast": 161000},
+        # REP missing for COUNTY CLERK in 2026 — not comparable
+    ])
     return db
 
 
@@ -108,27 +49,10 @@ def db_with_four_elections(db):
         (2022, 68000, 63000),
         (2026, 100000, 43000),
     ]:
-        seed_election(
-            db,
-            f"{year} General Primary",
-            year,
-            [
-                {
-                    "contest_name_raw": "FOR ATTORNEY GENERAL (Vote For 1)",
-                    "party": "DEM",
-                    "total_votes": dem,
-                    "registered_voters": 636000,
-                    "ballots_cast": 145000,
-                },
-                {
-                    "contest_name_raw": "FOR ATTORNEY GENERAL (Vote For 1)",
-                    "party": "REP",
-                    "total_votes": rep,
-                    "registered_voters": 636000,
-                    "ballots_cast": 145000,
-                },
-            ],
-        )
+        seed_election(db, f"{year} General Primary", year, [
+            {"contest_name_raw": "FOR ATTORNEY GENERAL (Vote For 1)", "party": "DEM", "total_votes": dem, "registered_voters": 636000, "ballots_cast": 145000},
+            {"contest_name_raw": "FOR ATTORNEY GENERAL (Vote For 1)", "party": "REP", "total_votes": rep, "registered_voters": 636000, "ballots_cast": 145000},
+        ])
     return db
 
 
@@ -141,8 +65,8 @@ def analyzer(db_with_two_elections):
 # list_elections
 # ---------------------------------------------------------------------------
 
-
 class TestListElections:
+
     def test_returns_dataframe(self, analyzer):
         result = analyzer.list_elections()
         assert isinstance(result, pd.DataFrame)
@@ -165,12 +89,10 @@ class TestListElections:
 # _resolve_elections (via public methods)
 # ---------------------------------------------------------------------------
 
-
 class TestResolveElections:
+
     def test_resolves_by_name(self, analyzer, db_with_two_elections):
-        result = analyzer.pct_change_by_party(
-            "2022 General Primary", "2026 General Primary"
-        )
+        result = analyzer.pct_change_by_party("2022 General Primary", "2026 General Primary")
         assert isinstance(result, pd.DataFrame)
 
     def test_resolves_by_id(self, analyzer, db_with_two_elections):
@@ -198,89 +120,53 @@ class TestResolveElections:
 # pct_change_by_party
 # ---------------------------------------------------------------------------
 
-
 class TestPctChangeByParty:
+
     def test_returns_dataframe(self, analyzer):
-        result = analyzer.pct_change_by_party(
-            "2022 General Primary", "2026 General Primary"
-        )
+        result = analyzer.pct_change_by_party("2022 General Primary", "2026 General Primary")
         assert isinstance(result, pd.DataFrame)
 
     def test_has_contest_column(self, analyzer):
-        result = analyzer.pct_change_by_party(
-            "2022 General Primary", "2026 General Primary"
-        )
+        result = analyzer.pct_change_by_party("2022 General Primary", "2026 General Primary")
         assert "contest" in result.columns
 
     def test_has_vote_total_columns(self, analyzer):
-        result = analyzer.pct_change_by_party(
-            "2022 General Primary", "2026 General Primary"
-        )
+        result = analyzer.pct_change_by_party("2022 General Primary", "2026 General Primary")
         assert "DEM 2022 General Primary" in result.columns
         assert "DEM 2026 General Primary" in result.columns
 
     def test_has_pct_change_columns(self, analyzer):
-        result = analyzer.pct_change_by_party(
-            "2022 General Primary", "2026 General Primary"
-        )
+        result = analyzer.pct_change_by_party("2022 General Primary", "2026 General Primary")
         assert "DEM % change" in result.columns
         assert "REP % change" in result.columns
 
     def test_pct_change_calculation(self, analyzer):
-        result = analyzer.pct_change_by_party(
-            "2022 General Primary", "2026 General Primary"
-        )
+        result = analyzer.pct_change_by_party("2022 General Primary", "2026 General Primary")
         row = result[result["contest"] == "FOR ATTORNEY GENERAL"].iloc[0]
         expected = (100000 - 68000) / 68000
         assert abs(row["DEM % change"] - expected) < 1e-6
 
     def test_excludes_non_comparable_contests(self, analyzer):
-        result = analyzer.pct_change_by_party(
-            "2022 General Primary", "2026 General Primary"
-        )
+        result = analyzer.pct_change_by_party("2022 General Primary", "2026 General Primary")
         assert "FOR COUNTY CLERK" not in result["contest"].values
 
     def test_excludes_legislation(self, analyzer):
-        result = analyzer.pct_change_by_party(
-            "2022 General Primary", "2026 General Primary"
-        )
+        result = analyzer.pct_change_by_party("2022 General Primary", "2026 General Primary")
         assert "REFERENDUM QUESTION 1" not in result["contest"].values
 
     def test_returns_empty_df_when_no_comparable_contests(self, db):
-        seed_election(
-            db,
-            "2022 General Primary",
-            2022,
-            [
-                {
-                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
-                    "party": "DEM",
-                    "total_votes": 5000,
-                },
-            ],
-        )
-        seed_election(
-            db,
-            "2026 General Primary",
-            2026,
-            [
-                {
-                    "contest_name_raw": "FOR GOVERNOR (Vote For 1)",
-                    "party": "DEM",
-                    "total_votes": 6000,
-                },
-            ],
-        )
+        seed_election(db, "2022 General Primary", 2022, [
+            {"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM", "total_votes": 5000},
+        ])
+        seed_election(db, "2026 General Primary", 2026, [
+            {"contest_name_raw": "FOR GOVERNOR (Vote For 1)", "party": "DEM", "total_votes": 6000},
+        ])
         analyzer = ElectionAnalyzer(db)
-        result = analyzer.pct_change_by_party(
-            "2022 General Primary", "2026 General Primary"
-        )
+        result = analyzer.pct_change_by_party("2022 General Primary", "2026 General Primary")
         assert len(result) == 0
 
     def test_column_order_dem_before_rep(self, analyzer):
-        result = analyzer.pct_change_by_party(
-            "2022 General Primary", "2026 General Primary"
-        )
+        result = analyzer.pct_change_by_party("2022 General Primary", "2026 General Primary")
         cols = list(result.columns)
         dem_idx = next(i for i, c in enumerate(cols) if c.startswith("DEM"))
         rep_idx = next(i for i, c in enumerate(cols) if c.startswith("REP"))
@@ -308,9 +194,7 @@ class TestPctChangeByParty:
         assert pd.isna(row["REP 2026 General Primary"])
 
     def test_comparable_only_defaults_to_true(self, analyzer):
-        result_default = analyzer.pct_change_by_party(
-            "2022 General Primary", "2026 General Primary"
-        )
+        result_default = analyzer.pct_change_by_party("2022 General Primary", "2026 General Primary")
         result_explicit = analyzer.pct_change_by_party(
             "2022 General Primary", "2026 General Primary", comparable_only=True
         )
@@ -321,8 +205,8 @@ class TestPctChangeByParty:
 # party_share
 # ---------------------------------------------------------------------------
 
-
 class TestPartyShare:
+
     def test_returns_dataframe(self, analyzer):
         result = analyzer.party_share("2022 General Primary", "2026 General Primary")
         assert isinstance(result, pd.DataFrame)
@@ -337,87 +221,28 @@ class TestPartyShare:
         assert "REP share 2026 General Primary" in result.columns
 
     def test_share_sums_to_one_for_two_party_contest(self, db):
-        seed_election(
-            db,
-            "2022 General Primary",
-            2022,
-            [
-                {
-                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
-                    "party": "DEM",
-                    "total_votes": 6000,
-                },
-                {
-                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
-                    "party": "REP",
-                    "total_votes": 4000,
-                },
-            ],
-        )
-        seed_election(
-            db,
-            "2026 General Primary",
-            2026,
-            [
-                {
-                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
-                    "party": "DEM",
-                    "total_votes": 7000,
-                },
-                {
-                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
-                    "party": "REP",
-                    "total_votes": 3000,
-                },
-            ],
-        )
+        seed_election(db, "2022 General Primary", 2022, [
+            {"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM", "total_votes": 6000},
+            {"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "REP", "total_votes": 4000},
+        ])
+        seed_election(db, "2026 General Primary", 2026, [
+            {"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM", "total_votes": 7000},
+            {"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "REP", "total_votes": 3000},
+        ])
         analyzer = ElectionAnalyzer(db)
         result = analyzer.party_share("2022 General Primary", "2026 General Primary")
         row = result[result["contest"] == "FOR SENATOR"].iloc[0]
-        assert (
-            abs(
-                row["DEM share 2022 General Primary"]
-                + row["REP share 2022 General Primary"]
-                - 1.0
-            )
-            < 1e-6
-        )
+        assert abs(row["DEM share 2022 General Primary"] + row["REP share 2022 General Primary"] - 1.0) < 1e-6
 
     def test_share_calculation(self, db):
-        seed_election(
-            db,
-            "2022 General Primary",
-            2022,
-            [
-                {
-                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
-                    "party": "DEM",
-                    "total_votes": 6000,
-                },
-                {
-                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
-                    "party": "REP",
-                    "total_votes": 4000,
-                },
-            ],
-        )
-        seed_election(
-            db,
-            "2026 General Primary",
-            2026,
-            [
-                {
-                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
-                    "party": "DEM",
-                    "total_votes": 7000,
-                },
-                {
-                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
-                    "party": "REP",
-                    "total_votes": 3000,
-                },
-            ],
-        )
+        seed_election(db, "2022 General Primary", 2022, [
+            {"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM", "total_votes": 6000},
+            {"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "REP", "total_votes": 4000},
+        ])
+        seed_election(db, "2026 General Primary", 2026, [
+            {"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM", "total_votes": 7000},
+            {"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "REP", "total_votes": 3000},
+        ])
         analyzer = ElectionAnalyzer(db)
         result = analyzer.party_share("2022 General Primary", "2026 General Primary")
         row = result[result["contest"] == "FOR SENATOR"].iloc[0]
@@ -427,10 +252,8 @@ class TestPartyShare:
     def test_accepts_four_elections(self, db_with_four_elections):
         analyzer = ElectionAnalyzer(db_with_four_elections)
         result = analyzer.party_share(
-            "2014 General Primary",
-            "2018 General Primary",
-            "2022 General Primary",
-            "2026 General Primary",
+            "2014 General Primary", "2018 General Primary",
+            "2022 General Primary", "2026 General Primary",
         )
         assert "DEM share 2014 General Primary" in result.columns
         assert "DEM share 2026 General Primary" in result.columns
@@ -456,9 +279,7 @@ class TestPartyShare:
         assert "FOR COUNTY CLERK" not in result["contest"].values
 
     def test_comparable_only_defaults_to_true(self, analyzer):
-        result_default = analyzer.party_share(
-            "2022 General Primary", "2026 General Primary"
-        )
+        result_default = analyzer.party_share("2022 General Primary", "2026 General Primary")
         result_explicit = analyzer.party_share(
             "2022 General Primary", "2026 General Primary", comparable_only=True
         )
@@ -471,40 +292,14 @@ class TestPartyShare:
 
     def test_pp_change_calculation(self, db):
         # DEM: 40% in 2022, 60% in 2026 → +0.20
-        seed_election(
-            db,
-            "2022 General Primary",
-            2022,
-            [
-                {
-                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
-                    "party": "DEM",
-                    "total_votes": 4000,
-                },
-                {
-                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
-                    "party": "REP",
-                    "total_votes": 6000,
-                },
-            ],
-        )
-        seed_election(
-            db,
-            "2026 General Primary",
-            2026,
-            [
-                {
-                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
-                    "party": "DEM",
-                    "total_votes": 6000,
-                },
-                {
-                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
-                    "party": "REP",
-                    "total_votes": 4000,
-                },
-            ],
-        )
+        seed_election(db, "2022 General Primary", 2022, [
+            {"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM", "total_votes": 4000},
+            {"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "REP", "total_votes": 6000},
+        ])
+        seed_election(db, "2026 General Primary", 2026, [
+            {"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM", "total_votes": 6000},
+            {"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "REP", "total_votes": 4000},
+        ])
         analyzer = ElectionAnalyzer(db)
         result = analyzer.party_share("2022 General Primary", "2026 General Primary")
         row = result[result["contest"] == "FOR SENATOR"].iloc[0]
@@ -513,36 +308,17 @@ class TestPartyShare:
 
     def test_pp_change_is_last_minus_first(self, db):
         # pp change should be 2026 minus 2014 regardless of the order elections are passed in
-        for year, dem, rep in [
-            (2014, 3000, 7000),
-            (2018, 4000, 6000),
-            (2022, 5000, 5000),
-            (2026, 6000, 4000),
-        ]:
-            seed_election(
-                db,
-                f"{year} General Primary",
-                year,
-                [
-                    {
-                        "contest_name_raw": "FOR SENATOR (Vote For 1)",
-                        "party": "DEM",
-                        "total_votes": dem,
-                    },
-                    {
-                        "contest_name_raw": "FOR SENATOR (Vote For 1)",
-                        "party": "REP",
-                        "total_votes": rep,
-                    },
-                ],
-            )
+        for year, dem, rep in [(2014, 3000, 7000), (2018, 4000, 6000),
+                               (2022, 5000, 5000), (2026, 6000, 4000)]:
+            seed_election(db, f"{year} General Primary", year, [
+                {"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM", "total_votes": dem},
+                {"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "REP", "total_votes": rep},
+            ])
         analyzer = ElectionAnalyzer(db)
         # Pass elections in reverse chronological order to prove sorting works
         result = analyzer.party_share(
-            "2026 General Primary",
-            "2022 General Primary",
-            "2018 General Primary",
-            "2014 General Primary",
+            "2026 General Primary", "2022 General Primary",
+            "2018 General Primary", "2014 General Primary",
         )
         row = result[result["contest"] == "FOR SENATOR"].iloc[0]
         # DEM: 0.30 in 2014, 0.60 in 2026 → +0.30
@@ -554,10 +330,8 @@ class TestPartyShare:
         result = analyzer.party_share("2022 General Primary", "2026 General Primary")
         cols = list(result.columns)
         dem_share_last = max(i for i, c in enumerate(cols) if c.startswith("DEM share"))
-        dem_pp = next(i for i, c in enumerate(cols) if c == "DEM pp change")
-        rep_share_first = next(
-            i for i, c in enumerate(cols) if c.startswith("REP share")
-        )
+        dem_pp         = next(i for i, c in enumerate(cols) if c == "DEM pp change")
+        rep_share_first = next(i for i, c in enumerate(cols) if c.startswith("REP share"))
         assert dem_share_last < dem_pp < rep_share_first
 
     def test_pp_change_with_nan_when_not_comparable(self, analyzer):
@@ -575,8 +349,8 @@ class TestPartyShare:
 # turnout
 # ---------------------------------------------------------------------------
 
-
 class TestTurnout:
+
     def test_returns_dataframe(self, analyzer):
         result = analyzer.turnout()
         assert isinstance(result, pd.DataFrame)
@@ -591,20 +365,10 @@ class TestTurnout:
         assert "2026 General Primary" in result.columns
 
     def test_pct_vote_calculation(self, db):
-        seed_election(
-            db,
-            "2022 General Primary",
-            2022,
-            [
-                {
-                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
-                    "party": "DEM",
-                    "total_votes": 5000,
-                    "registered_voters": 100000,
-                    "ballots_cast": 25000,
-                },
-            ],
-        )
+        seed_election(db, "2022 General Primary", 2022, [
+            {"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM",
+             "total_votes": 5000, "registered_voters": 100000, "ballots_cast": 25000},
+        ])
         analyzer = ElectionAnalyzer(db)
         result = analyzer.turnout()
         assert abs(result.loc["% Vote", "2022 General Primary"] - 0.25) < 1e-6
@@ -622,27 +386,17 @@ class TestTurnout:
         result = analyzer.turnout()
         assert result.index.name == "Metric"
 
-
 # ---------------------------------------------------------------------------
 # aggregated_csv
 # ---------------------------------------------------------------------------
 
-
 class TestAggregatedCsv:
+
     EXPECTED_COLUMNS = [
-        "line number",
-        "contest name",
-        "choice name",
-        "party",
-        "total votes",
-        "percent of votes",
-        "num precinct total",
-        "num precinct rptg",
-        "over votes",
-        "under votes",
-        "year",
-        "category",
-        "contest name (normalized)",
+        "line number", "contest name", "choice name", "party",
+        "total votes", "percent of votes",
+        "num precinct total", "num precinct rptg", "over votes", "under votes",
+        "year", "category", "contest name (normalized)",
     ]
 
     def test_returns_dataframe(self, analyzer):
@@ -673,18 +427,9 @@ class TestAggregatedCsv:
 
     def test_normalized_contest_name_differs_from_raw(self, db):
         # Raw has "(Vote For 1)" suffix; normalized strips it
-        seed_election(
-            db,
-            "2022 General Primary",
-            2022,
-            [
-                {
-                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
-                    "party": "DEM",
-                    "total_votes": 5000,
-                },
-            ],
-        )
+        seed_election(db, "2022 General Primary", 2022, [
+            {"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM", "total_votes": 5000},
+        ])
         analyzer = ElectionAnalyzer(db)
         result = analyzer.aggregated_csv()
         row = result.iloc[0]

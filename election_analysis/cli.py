@@ -1,7 +1,7 @@
 """
-dupage_elections/cli.py
+election_analysis/cli.py
 -----------------------
-Command-line entry points for the dupage_elections package.
+Command-line entry points for the election_analysis package.
 
 Each function is registered as a [project.scripts] entry point in
 pyproject.toml, so after `uv sync` you can run:

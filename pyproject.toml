@@ -1,7 +1,7 @@
 [project]
-name = "dupage-elections"
+name = "election-analysis-generator"
 version = "0.1.0"
-description = "Analysis of partisan primary election results in DuPage County, IL"
+description = "A tool for loading, normalising, and analysing partisan primary election results"
 requires-python = ">=3.14"
 dependencies = [
     "pandas>=3.0",
@@ -9,11 +9,11 @@ dependencies = [
 ]
 
 [project.scripts]
-sync-sources      = "dupage_elections.cli:sync_sources"
-generate-analysis = "dupage_elections.cli:generate_analysis"
-export-flags      = "dupage_elections.cli:export_flags_cmd"
-import-flags      = "dupage_elections.cli:import_flags_cmd"
-review-flags      = "dupage_elections.cli:review_flags_cmd"
+sync-sources      = "election_analysis.cli:sync_sources"
+generate-analysis = "election_analysis.cli:generate_analysis"
+export-flags      = "election_analysis.cli:export_flags_cmd"
+import-flags      = "election_analysis.cli:import_flags_cmd"
+review-flags      = "election_analysis.cli:review_flags_cmd"
 
 [build-system]
 requires = ["hatchling"]
@@ -28,10 +28,10 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = [
-    "--cov=dupage_elections",
+    "--cov=election_analysis",
     "--cov-report=term-missing",
 ]
 
 [tool.coverage.run]
-source = ["dupage_elections"]
+source = ["election_analysis"]
 omit = ["tests/*"]

@@ -13,7 +13,6 @@ from datetime import date
 @dataclass
 class Election:
     """Represents a single election event (e.g. "2022 General Primary")."""
-
     id: int | None
     name: str
     year: int
@@ -29,7 +28,6 @@ class Election:
 @dataclass
 class Contest:
     """A unique normalized contest name."""
-
     id: int | None
     contest_name: str
     is_legislation: bool = False
@@ -38,7 +36,6 @@ class Contest:
 @dataclass
 class Candidate:
     """A single candidate row from a source file."""
-
     id: int | None
     contest_id: int
     election_id: int
