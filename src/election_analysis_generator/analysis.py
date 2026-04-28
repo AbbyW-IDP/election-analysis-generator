@@ -12,7 +12,7 @@ from datetime import date
 
 import pandas as pd
 
-from src.election_analysis_generator.db import ElectionDatabase
+from src.election_analysis_generator.db import ElectionDatabase, _placeholders
 from src.election_analysis_generator.models import Election
 
 
@@ -97,9 +97,6 @@ class ElectionAnalyzer:
         Aggregate total votes per contest × party × election.
         Excludes legislation contests.
         """
-        id_placeholders = ",".join("?" * len(election_ids))
-        party_placeholders = ",".join("?" * len(parties))
-
         return self._db.query(
             f"""
             SELECT
@@ -113,8 +110,8 @@ class ElectionAnalyzer:
             FROM candidates ca
             JOIN contests  co ON ca.contest_id  = co.id
             JOIN elections e  ON ca.election_id = e.id
-            WHERE e.id IN ({id_placeholders})
-              AND ca.party IN ({party_placeholders})
+            WHERE e.id IN ({_placeholders(len(election_ids))})
+              AND ca.party IN ({_placeholders(len(parties))})
               AND co.is_legislation = 0
             GROUP BY e.id, co.contest_name, ca.party
             """,
@@ -266,7 +263,6 @@ class ElectionAnalyzer:
             return pd.DataFrame(columns=["contest"])
 
         # All-party totals per contest per election for denominator
-        id_placeholders = ",".join("?" * len(election_ids))
         all_totals = self._db.query(
             f"""
             SELECT e.id AS election_id, e.name AS election_name,
@@ -275,7 +271,7 @@ class ElectionAnalyzer:
             FROM candidates ca
             JOIN contests  co ON ca.contest_id  = co.id
             JOIN elections e  ON ca.election_id = e.id
-            WHERE e.id IN ({id_placeholders})
+            WHERE e.id IN ({_placeholders(len(election_ids))})
               AND co.is_legislation = 0
             GROUP BY e.id, co.contest_name
             """,
@@ -388,7 +384,6 @@ class ElectionAnalyzer:
         if not election_ids:
             return pd.DataFrame()
 
-        id_placeholders = ",".join("?" * len(election_ids))
         df = self._db.query(
             f"""
             SELECT
@@ -410,7 +405,7 @@ class ElectionAnalyzer:
                 ca.election_name        AS "election name"
             FROM candidates ca
             JOIN elections e ON ca.election_id = e.id
-            WHERE e.id IN ({id_placeholders})
+            WHERE e.id IN ({_placeholders(len(election_ids))})
             ORDER BY ca.year, ca.contest_name, ca.party, ca.choice_name
             """,
             election_ids,

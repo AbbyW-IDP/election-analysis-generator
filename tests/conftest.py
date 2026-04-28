@@ -97,6 +97,6 @@ def seed_election(
         ballots_cast=ballots_cast,
         registered_voters=registered_voters,
     )
-    election = db.insert_election(election, df)
+    election, _ = db.insert_election(election, df)
     db.register_source(election.source_file, election.id)
     return election

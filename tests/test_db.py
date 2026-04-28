@@ -129,8 +129,15 @@ class TestInsertElection:
         df = make_candidates_df(
             [{"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM"}]
         )
-        result = db.insert_election(sample_election, df)
-        assert result.id is not None
+        election, _ = db.insert_election(sample_election, df)
+        assert election.id is not None
+
+    def test_returns_new_names_list(self, db, sample_election):
+        df = make_candidates_df(
+            [{"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM"}]
+        )
+        _, new_names = db.insert_election(sample_election, df)
+        assert isinstance(new_names, list)
 
     def test_inserts_candidate_rows(self, db, sample_election):
         df = make_candidates_df(
@@ -168,7 +175,7 @@ class TestInsertElection:
                 }
             ]
         )
-        result = db.insert_election(election, df)
+        result, _ = db.insert_election(election, df)
         # elections table should have the toml values, not the CSV row values
         assert result.ballots_cast == 145051
         assert result.registered_voters == 636341
@@ -269,6 +276,17 @@ class TestInsertElection:
         ]
         assert is_leg == 0
 
+    def test_infers_legislation_when_party_is_empty_string(self, db, sample_election):
+        """An empty string party must not be treated as a valid partisan affiliation."""
+        df = make_candidates_df(
+            [{"contest_name_raw": "Referendum Question 1 (Vote For 1)", "party": ""}]
+        )
+        db.insert_election(sample_election, df)
+        is_leg = db.query("SELECT is_legislation FROM contests").iloc[0][
+            "is_legislation"
+        ]
+        assert is_leg == 1
+
     def test_flags_unrecognized_contest_names(self, db, sample_election):
         df = make_candidates_df(
             [{"contest_name_raw": "FOR BRAND NEW CONTEST (Vote For 1)", "party": "DEM"}]
@@ -276,6 +294,14 @@ class TestInsertElection:
         db.insert_election(sample_election, df)
         flags = db.get_unresolved_flags()
         assert any(f["contest_name"] == "FOR BRAND NEW CONTEST" for f in flags)
+
+    def test_insert_election_returns_new_names(self, db, sample_election):
+        """New contest names are returned directly rather than requiring a registry diff."""
+        df = make_candidates_df(
+            [{"contest_name_raw": "FOR BRAND NEW CONTEST (Vote For 1)", "party": "DEM"}]
+        )
+        _, new_names = db.insert_election(sample_election, df)
+        assert "FOR BRAND NEW CONTEST" in new_names
 
     def test_no_flags_for_known_contest_names(self, db, sample_election):
         db.register_contest_name("FOR ATTORNEY GENERAL", 2022)

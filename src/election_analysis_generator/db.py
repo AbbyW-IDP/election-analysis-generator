@@ -93,6 +93,11 @@ _SCHEMA = """
     );
 """
 
+# Issue #13: shared helper for building SQL IN-clause placeholders
+def _placeholders(n: int) -> str:
+    """Return a comma-separated string of n '?' placeholders for use in SQL IN clauses."""
+    return ",".join("?" * n)
+
 
 class ElectionDatabase:
     """
@@ -131,7 +136,7 @@ class ElectionDatabase:
     # Elections
     # ------------------------------------------------------------------
 
-    def insert_election(self, election: Election, df: pd.DataFrame) -> Election:
+    def insert_election(self, election: Election, df: pd.DataFrame) -> tuple[Election, list[str]]:
         """
         Insert an Election and all its candidates from a normalized DataFrame.
 
@@ -140,13 +145,9 @@ class ElectionDatabase:
         figures. Per-contest figures from the CSV rows are stored directly on
         each candidate row and may differ from the election-wide totals.
 
-        Returns the Election with its database id populated.
+        Returns a tuple of (Election with its database id populated, list of
+        new unrecognized contest names that were flagged).
         """
-        overrides = self.get_overrides()
-
-        ballots_cast = election.ballots_cast
-        registered_voters = election.registered_voters
-
         cur = self._conn.execute(
             """
             INSERT INTO elections
@@ -165,8 +166,8 @@ class ElectionDatabase:
                 election.source_file,
                 election.category,
                 election.election_type,
-                ballots_cast,
-                registered_voters,
+                election.ballots_cast,
+                election.registered_voters,
             ),
         )
         election_id = cur.lastrowid
@@ -179,35 +180,70 @@ class ElectionDatabase:
             source_file=election.source_file,
             category=election.category,
             election_type=election.election_type,
-            ballots_cast=ballots_cast,
-            registered_voters=registered_voters,
+            ballots_cast=election.ballots_cast,
+            registered_voters=election.registered_voters,
         )
 
-        # Normalize and insert all candidates
         known = self.get_known_contest_names()
-        new_names = []
+        normalized_df = self._normalize_df(df, self.get_overrides())
+        new_names = self._upsert_contests(normalized_df, election.year, known)
+        self._insert_candidates(normalized_df, election_id, election.name, election.year)
 
+        self._conn.commit()
+        return election, new_names
+
+    def _normalize_df(self, df: pd.DataFrame, overrides: dict[str, str]) -> pd.DataFrame:
+        """
+        Apply contest name normalization and party normalization to a raw
+        candidates DataFrame. Returns a new DataFrame with contest_name and
+        party columns populated.
+        """
         df = df.copy()
         df["contest_name_raw"] = df["contest_name_raw"].astype(str)
         df["contest_name"] = df["contest_name_raw"].apply(
             lambda r: overrides[r] if r in overrides else normalize_contest_name(r)
         )
         df["party"] = df["party"].apply(normalize_party)
+        return df
 
-        # Detect new contest names for flagging
-        for name in df["contest_name"].unique():
-            if name not in known:
-                new_names.append(name)
-            self._upsert_contest(name, df[df["contest_name"] == name])
+    def _upsert_contests(
+        self,
+        df: pd.DataFrame,
+        year: int,
+        known: set[str],
+    ) -> list[str]:
+        """
+        For each unique normalized contest name in df:
+          - Insert into contests table if not already present.
+          - Register in contest_names registry if not already known.
+          - Flag any names not previously in the registry.
+
+        Returns the list of newly flagged contest names (those not in known).
+        """
+        new_names = []
+
+        for contest_name in df["contest_name"].unique():
+            self._upsert_contest(contest_name, df[df["contest_name"] == contest_name])
             self._conn.execute(
                 "INSERT OR IGNORE INTO contest_names (contest_name, first_seen_year) VALUES (?,?)",
-                (name, election.year),
+                (contest_name, year),
             )
+            if contest_name not in known:
+                new_names.append(contest_name)
 
         if new_names:
-            self._write_flags(df[df["contest_name"].isin(new_names)], election.year)
+            self._write_flags(df[df["contest_name"].isin(new_names)], year)
 
-        # Insert candidate rows
+        return sorted(new_names)
+
+    def _insert_candidates(
+        self,
+        df: pd.DataFrame,
+        election_id: int,
+        election_name: str,
+        year: int,
+    ) -> None:
+        """Insert all candidate rows from df into the candidates table."""
         for _, row in df.iterrows():
             contest_id = self._conn.execute(
                 "SELECT id FROM contests WHERE contest_name = ?",
@@ -233,8 +269,8 @@ class ElectionDatabase:
                     else None,
                     row["contest_name_raw"],
                     row["contest_name"],
-                    election.name,
-                    election.year,
+                    election_name,
+                    year,
                     row.get("choice_name"),
                     row.get("party"),
                     row.get("total_votes"),
@@ -248,9 +284,6 @@ class ElectionDatabase:
                 ),
             )
 
-        self._conn.commit()
-        return election
-
     def _upsert_contest(self, contest_name: str, rows: pd.DataFrame) -> None:
         """Insert a contest if it doesn't exist. Infer is_legislation from party data."""
         existing = self._conn.execute(
@@ -259,8 +292,17 @@ class ElectionDatabase:
         if existing:
             return
 
-        # Infer legislation: no non-null party values means no partisan candidates
-        has_party = rows["party"].notna().any() if "party" in rows.columns else False
+        # Issue #1: normalize_party has already run, so check for non-null,
+        # non-empty string values rather than raw truthiness. A blank or
+        # whitespace-only party (e.g. from an empty CSV cell) must not be
+        # treated as a valid partisan affiliation.
+        has_party = (
+            df["party"]
+            .apply(lambda p: isinstance(p, str) and p.strip() != "")
+            .any()
+            if "party" in (df := rows).columns
+            else False
+        )
         is_legislation = 0 if has_party else 1
 
         self._conn.execute(
@@ -394,6 +436,9 @@ class ElectionDatabase:
         self._conn.commit()
 
     def _write_flags(self, df: pd.DataFrame, year: int) -> None:
+        # Issue #11: guard here so callers don't need to check before calling
+        if df.empty:
+            return
         flag_df = df[["contest_name_raw", "contest_name"]].drop_duplicates().copy()
         flag_df["year"] = year
         flag_rows = flag_df[["year", "contest_name_raw", "contest_name"]].itertuples(
@@ -411,4 +456,8 @@ class ElectionDatabase:
 
     def query(self, sql: str, params: list | None = None) -> pd.DataFrame:
         """Execute a SELECT and return results as a DataFrame."""
-        return pd.read_sql(sql, self._conn, params=params or [])
+        # Issue #6: only pass params when non-None to avoid passing an empty
+        # list, which is fragile across different DB drivers
+        if params is not None:
+            return pd.read_sql(sql, self._conn, params=params)
+        return pd.read_sql(sql, self._conn)

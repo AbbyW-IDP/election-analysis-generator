@@ -247,10 +247,9 @@ class ElectionLoader:
             registered_voters=config.get("registered_voters"),
         )
 
-        known_before = self._db.get_known_contest_names()
-        election = self._db.insert_election(election, df)
-        known_after = self._db.get_known_contest_names()
-        new_names = sorted(known_after - known_before)
+        # insert_election now returns (election, new_names) directly —
+        # no need to diff the contest_names registry before and after.
+        election, new_names = self._db.insert_election(election, df)
 
         self._db.register_source(path.name, election.id)
         return election, new_names
