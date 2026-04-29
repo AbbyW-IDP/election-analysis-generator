@@ -14,17 +14,19 @@ Current data covers DuPage County, Illinois (2014, 2018, 2022, 2026), sourced fr
 ├── pyproject.toml
 ├── elections.toml              # Election metadata: names, dates, turnout figures, source files
 ├── elections.db                # SQLite database (generated locally, not committed)
-├── sources/                    # Drop election CSVs here to load them
+├── sources/                    # Drop election source files here to load them
 │   ├── 2022-general-primary-2022-07-19.csv
-│   └── 2026-general-primary-2026-04-07.csv
-├── election_analysis/           # Package — all logic lives here
-│   ├── models.py               # Dataclasses: Election, Contest, Candidate
-│   ├── db.py                   # ElectionDatabase: all SQLite operations
-│   ├── loader.py               # ElectionLoader: reads config + CSVs into DB
-│   ├── analysis.py             # ElectionAnalyzer: analysis methods → DataFrames
-│   ├── normalize.py            # Pure functions: contest name + party normalization
-│   ├── flags.py                # export_flags(), import_flags(), review_flags()
-│   └── cli.py                  # Entry points wired to [project.scripts]
+│   ├── 2026-general-primary-2026-04-07.csv
+│   └── 2026-general-primary-detail.xlsx   # Precinct-level detail (optional)
+├── src/
+│   └── election_analysis_generator/       # Package — all logic lives here
+│       ├── models.py               # Dataclasses: Election, Contest, Candidate
+│       ├── db.py                   # ElectionDatabase: all SQLite operations
+│       ├── loader.py               # ElectionLoader: reads config + source files into DB
+│       ├── analysis.py             # ElectionAnalyzer: analysis methods → DataFrames
+│       ├── normalize.py            # Pure functions: contest name + party normalization
+│       ├── flags.py                # export_flags(), import_flags(), review_flags()
+│       └── cli.py                  # Entry points wired to [project.scripts]
 └── tests/
     ├── conftest.py             # Fixtures and helpers: db, sample_election, seed_election()
     ├── test_db.py
@@ -90,6 +92,7 @@ election_date     = "2026-04-07"
 category          = "General Primary"
 election_type     = "midterm"
 source_file       = "2026-general-primary-2026-04-07.csv"
+detail_file       = "2026-general-primary-detail.xlsx"   # optional
 registered_voters = 636822
 ballots_cast      = 161738
 ```
@@ -98,6 +101,7 @@ ballots_cast      = 161738
 |---|---|---|
 | `name` | Yes | Display name used throughout the codebase |
 | `source_file` | Yes | CSV filename in `sources/` (basename only, no path prefix) |
+| `detail_file` | No | Excel filename in `sources/` containing precinct-level results |
 | `year` | No | Inferred from filename if omitted |
 | `election_date` | No | ISO 8601 date (`YYYY-MM-DD`) |
 | `category` | No | One of: `Consolidated`, `Consolidated Primary`, `General`, `General Primary` |
@@ -237,6 +241,25 @@ When a flag is marked `mapped`, an entry is added to `contest_name_overrides` li
 **`contest_name_overrides`** — manual mappings: raw name → canonical normalized name
 
 **`loaded_sources`** — registry of source keys that have been loaded (prevents re-loading)
+
+**`candidate_precinct_results`** — precinct-level vote breakdown from detail Excel files
+
+| Column | Description |
+|---|---|
+| `id` | Primary key |
+| `election_id` | FK → `elections` |
+| `contest_id` | FK → `contests` |
+| `contest_name_raw` | Original contest name from the detail file |
+| `choice_name` | Candidate name |
+| `precinct` | Precinct name (e.g. `"Addison 001"`) |
+| `registered_voters` | Registered voters in this precinct for this contest |
+| `early_votes` | Early votes received |
+| `vote_by_mail` | Vote-by-mail votes received |
+| `polling` | Election day polling votes received |
+| `provisional` | Provisional votes received |
+| `total_votes` | Total votes received (sum of all vote methods) |
+
+Unique on `(election_id, contest_id, choice_name, precinct)` — re-loading the same detail file is safe. Precinct totals summed by candidate should equal the corresponding `total_votes` in `candidates`, which provides a built-in cross-check against the summary CSV.
 
 ---
 
