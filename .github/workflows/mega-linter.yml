@@ -19,12 +19,10 @@ jobs:
   megalinter:
     name: Run MegaLinter
     runs-on: ubuntu-latest
-
     permissions:
       contents: write
       issues: write
       pull-requests: write
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -35,11 +33,3 @@ jobs:
         uses: oxsecurity/megalinter/flavors/python@v9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ENABLE_LINTERS: |
-            PYTHON_RUFF
-            PYTHON_RUFF_FORMAT
-            PYTHON_MYPY
-            PYTHON_BANDIT
-            REPOSITORY_TRIVY
-            YAML_YAMLLINT
-            MARKDOWN_MARKDOWNLINT
