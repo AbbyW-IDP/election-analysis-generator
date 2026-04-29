@@ -453,3 +453,191 @@ class TestFlags:
         db._conn.commit()
         flag = db.get_unresolved_flags()[0]
         assert {"id", "year", "contest_name_raw", "contest_name"}.issubset(flag.keys())
+
+
+def _seed_precinct_election(db):
+    """Seed a minimal election + contest and return (election, contest_id)."""
+    election = seed_election(
+        db,
+        "2026 General Primary",
+        2026,
+        [{"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM"}],
+    )
+    contest_id = db._conn.execute("SELECT id FROM contests").fetchone()[0]
+    return election, contest_id
+
+
+def _make_precinct_row(election_id, contest_id, **overrides):
+    """Return a minimal valid precinct result dict."""
+    row = {
+        "election_id": election_id,
+        "contest_id": contest_id,
+        "contest_name_raw": "FOR SENATOR (Vote For 1)",
+        "choice_name": "Jane Smith",
+        "precinct": "Addison 001",
+        "registered_voters": 500,
+        "early_votes": 10,
+        "vote_by_mail": 20,
+        "polling": 30,
+        "provisional": 1,
+        "total_votes": 61,
+    }
+    row.update(overrides)
+    return row
+
+
+class TestPrecinctResultsSchema:
+    def test_creates_candidate_precinct_results_table(self, db):
+        tables = db.query("SELECT name FROM sqlite_master WHERE type='table'")
+        assert "candidate_precinct_results" in tables["name"].values
+
+    def test_has_required_columns(self, db):
+        cols = set(db.query("PRAGMA table_info(candidate_precinct_results)")["name"])
+        expected = {
+            "id",
+            "election_id",
+            "contest_id",
+            "contest_name_raw",
+            "choice_name",
+            "precinct",
+            "registered_voters",
+            "early_votes",
+            "vote_by_mail",
+            "polling",
+            "provisional",
+            "total_votes",
+        }
+        assert expected.issubset(cols)
+
+    def test_indexes_exist(self, db):
+        indexes = db.query(
+            "SELECT name FROM sqlite_master WHERE type='index'"
+        )["name"].values
+        assert "idx_precinct_results_election" in indexes
+        assert "idx_precinct_results_contest" in indexes
+        assert "idx_precinct_results_precinct" in indexes
+
+    def test_idempotent(self):
+        db = ElectionDatabase(":memory:")
+        db._create_schema()  # second call should not raise
+        db.close()
+
+
+class TestInsertPrecinctResults:
+    def test_inserts_row(self, db):
+        election, contest_id = _seed_precinct_election(db)
+        row = _make_precinct_row(election.id, contest_id)
+        db.insert_precinct_results([row])
+        count = db.query(
+            "SELECT COUNT(*) AS n FROM candidate_precinct_results"
+        ).iloc[0]["n"]
+        assert count == 1
+
+    def test_all_columns_stored_correctly(self, db):
+        election, contest_id = _seed_precinct_election(db)
+        row = _make_precinct_row(election.id, contest_id)
+        db.insert_precinct_results([row])
+        result = db.query("SELECT * FROM candidate_precinct_results").iloc[0]
+        assert result["election_id"] == election.id
+        assert result["contest_id"] == contest_id
+        assert result["contest_name_raw"] == "FOR SENATOR (Vote For 1)"
+        assert result["choice_name"] == "Jane Smith"
+        assert result["precinct"] == "Addison 001"
+        assert result["registered_voters"] == 500
+        assert result["early_votes"] == 10
+        assert result["vote_by_mail"] == 20
+        assert result["polling"] == 30
+        assert result["provisional"] == 1
+        assert result["total_votes"] == 61
+
+    def test_duplicate_is_ignored(self, db):
+        election, contest_id = _seed_precinct_election(db)
+        row = _make_precinct_row(election.id, contest_id)
+        db.insert_precinct_results([row])
+        db.insert_precinct_results([row])  # second call with same row
+        count = db.query(
+            "SELECT COUNT(*) AS n FROM candidate_precinct_results"
+        ).iloc[0]["n"]
+        assert count == 1
+
+    def test_multiple_candidates_same_precinct(self, db):
+        election, contest_id = _seed_precinct_election(db)
+        rows = [
+            _make_precinct_row(election.id, contest_id, choice_name="Jane Smith", total_votes=61),
+            _make_precinct_row(election.id, contest_id, choice_name="John Doe", total_votes=39),
+        ]
+        db.insert_precinct_results(rows)
+        count = db.query(
+            "SELECT COUNT(*) AS n FROM candidate_precinct_results"
+        ).iloc[0]["n"]
+        assert count == 2
+
+    def test_multiple_precincts_same_candidate(self, db):
+        election, contest_id = _seed_precinct_election(db)
+        rows = [
+            _make_precinct_row(election.id, contest_id, precinct="Addison 001", total_votes=61),
+            _make_precinct_row(election.id, contest_id, precinct="Addison 002", total_votes=45),
+        ]
+        db.insert_precinct_results(rows)
+        count = db.query(
+            "SELECT COUNT(*) AS n FROM candidate_precinct_results"
+        ).iloc[0]["n"]
+        assert count == 2
+
+    def test_bad_election_id_raises(self, db):
+        _, contest_id = _seed_precinct_election(db)
+        row = _make_precinct_row(election_id=9999, contest_id=contest_id)
+        with pytest.raises(Exception):
+            db.insert_precinct_results([row])
+
+    def test_bad_contest_id_raises(self, db):
+        election, _ = _seed_precinct_election(db)
+        row = _make_precinct_row(election_id=election.id, contest_id=9999)
+        with pytest.raises(Exception):
+            db.insert_precinct_results([row])
+
+    def test_registered_voters_nullable(self, db):
+        election, contest_id = _seed_precinct_election(db)
+        row = _make_precinct_row(election.id, contest_id, registered_voters=None)
+        db.insert_precinct_results([row])
+        result = db.query("SELECT registered_voters FROM candidate_precinct_results").iloc[0]
+        assert result["registered_voters"] is None
+
+    def test_precinct_totals_match_summary(self, db):
+        """Precinct rows summed by candidate should equal summary candidate totals."""
+        election, contest_id = _seed_precinct_election(db)
+        precinct_rows = [
+            _make_precinct_row(election.id, contest_id, precinct="Addison 001", total_votes=61),
+            _make_precinct_row(election.id, contest_id, precinct="Addison 002", total_votes=39),
+            _make_precinct_row(election.id, contest_id, precinct="Addison 003", total_votes=50),
+        ]
+        db.insert_precinct_results(precinct_rows)
+
+        # The summary candidate row was inserted by seed_election with total_votes=1000
+        # (the make_candidates_df default). Update it to match our precinct sum (150).
+        db._conn.execute(
+            "UPDATE candidates SET total_votes = 150 WHERE election_id = ?",
+            (election.id,),
+        )
+        db._conn.commit()
+
+        mismatch = db.query(
+            """
+            SELECT c.choice_name, c.total_votes AS summary_total, pr.detail_total,
+                   c.total_votes - pr.detail_total AS diff
+            FROM candidates c
+            JOIN (
+                SELECT contest_id, choice_name, election_id,
+                       SUM(total_votes) AS detail_total
+                FROM   candidate_precinct_results
+                GROUP  BY contest_id, choice_name, election_id
+            ) pr
+                ON  pr.contest_id  = c.contest_id
+                AND pr.choice_name = c.choice_name
+                AND pr.election_id = c.election_id
+            WHERE c.election_id = ?
+              AND diff <> 0
+            """,
+            params=[election.id],
+        )
+        assert mismatch.empty

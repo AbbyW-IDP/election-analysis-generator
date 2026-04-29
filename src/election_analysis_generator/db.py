@@ -91,6 +91,32 @@ _SCHEMA = """
         election_id         INTEGER REFERENCES elections(id),
         loaded_at           TEXT DEFAULT (datetime('now'))
     );
+
+    -- Precinct-level results from detail Excel files
+    CREATE TABLE IF NOT EXISTS candidate_precinct_results (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        election_id         INTEGER NOT NULL REFERENCES elections(id),
+        contest_id          INTEGER NOT NULL REFERENCES contests(id),
+        contest_name_raw    TEXT NOT NULL,
+        choice_name         TEXT NOT NULL,
+        precinct            TEXT NOT NULL,
+        registered_voters   INTEGER,
+        early_votes         INTEGER,
+        vote_by_mail        INTEGER,
+        polling             INTEGER,
+        provisional         INTEGER,
+        total_votes         INTEGER NOT NULL,
+        UNIQUE (election_id, contest_id, choice_name, precinct)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_precinct_results_election
+        ON candidate_precinct_results (election_id);
+
+    CREATE INDEX IF NOT EXISTS idx_precinct_results_contest
+        ON candidate_precinct_results (election_id, contest_id);
+
+    CREATE INDEX IF NOT EXISTS idx_precinct_results_precinct
+        ON candidate_precinct_results (election_id, precinct);
 """
 
 # Issue #13: shared helper for building SQL IN-clause placeholders
@@ -449,6 +475,60 @@ class ElectionDatabase:
             flag_rows,
         )
         self._conn.commit()
+
+    # ------------------------------------------------------------------
+    # Precinct-level results
+    # ------------------------------------------------------------------
+
+    def insert_precinct_results(self, rows: list[dict]) -> int:
+        """Insert precinct-level result rows, skipping duplicates.
+
+        Each dict in *rows* must have the keys:
+            election_id, contest_id, contest_name_raw, choice_name,
+            precinct, registered_voters, early_votes, vote_by_mail,
+            polling, provisional, total_votes
+
+        contest_id must be the integer primary key from the contests table,
+        not the normalized name string.
+
+        Returns the number of rows actually inserted. Duplicates are silently
+        skipped via INSERT OR IGNORE, so the count may be less than len(rows).
+
+        Raises:
+            sqlite3.IntegrityError  – if election_id or contest_id FK is
+                                      missing (i.e. the election/contest was
+                                      not registered before calling this).
+        """
+        sql = """
+            INSERT OR IGNORE INTO candidate_precinct_results (
+                election_id,
+                contest_id,
+                contest_name_raw,
+                choice_name,
+                precinct,
+                registered_voters,
+                early_votes,
+                vote_by_mail,
+                polling,
+                provisional,
+                total_votes
+            ) VALUES (
+                :election_id,
+                :contest_id,
+                :contest_name_raw,
+                :choice_name,
+                :precinct,
+                :registered_voters,
+                :early_votes,
+                :vote_by_mail,
+                :polling,
+                :provisional,
+                :total_votes
+            )
+        """
+        cursor = self._conn.executemany(sql, rows)
+        self._conn.commit()
+        return cursor.rowcount
 
     # ------------------------------------------------------------------
     # Read access (for analysis)
