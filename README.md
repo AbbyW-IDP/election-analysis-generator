@@ -138,6 +138,33 @@ Plain integers (e.g. `District 1`) are preserved. Original raw contest names are
 
 ---
 
+## Candidate name corrections
+
+Known misspellings in candidate names are corrected on load via `CANDIDATE_NAME_CORRECTIONS` in `normalize.py`. Each entry is a 2-tuple:
+
+```python
+(wrong_name, correct_name)
+```
+
+Matching is case-insensitive exact string matching. The corrected value is returned exactly as written in the tuple.
+
+Current corrections:
+
+| Wrong name | Correct name |
+|---|---|
+| `JB PRITZER` | `JB PRITZKER` |
+
+To add a new correction, add an entry to `CANDIDATE_NAME_CORRECTIONS` in `normalize.py`. Keys must be casefolded (lowercase):
+
+```python
+CANDIDATE_NAME_CORRECTIONS: dict[str, str] = {
+    "jb pritzer": "JB PRITZKER",
+    "wrong name": "CORRECT NAME",  # new
+}
+```
+
+---
+
 ## Reviewing flagged contest names
 
 After loading a new election, any normalized contest name that doesn't match the registry is flagged. There are two ways to resolve flags.
@@ -190,7 +217,7 @@ When a flag is marked `mapped`, an entry is added to `contest_name_overrides` li
 
 **`analysis.py` — `ElectionAnalyzer`** reads from an `ElectionDatabase` and produces analysis DataFrames. Elections can be specified by name, database id, or `Election` object. Methods: `list_elections()`, `pct_change_by_party()`, `party_share()`, `turnout()`.
 
-**`normalize.py`** contains pure functions for contest name and party normalization — no state, no I/O, fully unit-tested independently.
+**`normalize.py`** contains pure functions for contest name, party, and candidate name normalization — no state, no I/O, fully unit-tested independently.
 
 **`flags.py`** contains `export_flags()`, `import_flags()`, and `review_flags()` — all flag-management logic in one place.
 

@@ -30,8 +30,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.election_analysis_generator.models import Election, Contest, Candidate
-from src.election_analysis_generator.normalize import (
+from .models import Election
+from .normalize import (
     normalize_contest_name,
     normalize_party,
 )
@@ -139,6 +139,7 @@ _SCHEMA = """
         ON candidate_precinct_results (election_id, precinct);
 """
 
+
 def _placeholders(n: int) -> str:
     """Return a comma-separated string of n '?' placeholders for use in SQL IN clauses."""
     return ",".join("?" * n)
@@ -226,7 +227,9 @@ class ElectionDatabase:
     # the summary CSV path; insert_precinct_results() handles the detail path.
     # ------------------------------------------------------------------
 
-    def insert_election(self, election: Election, df: pd.DataFrame) -> tuple[Election, list[str]]:
+    def insert_election(
+        self, election: Election, df: pd.DataFrame
+    ) -> tuple[Election, list[str]]:
         """
         Insert an Election and all its candidates from a normalized DataFrame.
 
@@ -299,12 +302,16 @@ class ElectionDatabase:
         known = self.get_known_contest_names()
         normalized_df = self._normalize_df(df, self.get_overrides())
         new_names = self._upsert_contests(normalized_df, election.year, known)
-        self._insert_candidates(normalized_df, election_id, election.name, election.year)
+        self._insert_candidates(
+            normalized_df, election_id, election.name, election.year
+        )
 
         self._conn.commit()
         return election, new_names
 
-    def _normalize_df(self, df: pd.DataFrame, overrides: dict[str, str]) -> pd.DataFrame:
+    def _normalize_df(
+        self, df: pd.DataFrame, overrides: dict[str, str]
+    ) -> pd.DataFrame:
         """
         Apply contest name and party normalization to a raw candidates DataFrame.
 
@@ -470,9 +477,7 @@ class ElectionDatabase:
         # whitespace-only party (e.g. from an empty CSV cell) must not be
         # treated as a valid partisan affiliation.
         has_party = (
-            df["party"]
-            .apply(lambda p: isinstance(p, str) and p.strip() != "")
-            .any()
+            df["party"].apply(lambda p: isinstance(p, str) and p.strip() != "").any()
             if "party" in (df := rows).columns
             else False
         )

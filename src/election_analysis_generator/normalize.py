@@ -131,3 +131,31 @@ def normalize_party(raw: str | None) -> str | None:
         return None
     cleaned = str(raw).strip().upper()
     return PARTY_MAP.get(cleaned, cleaned)
+
+
+# ---------------------------------------------------------------------------
+# Candidate name corrections
+# ---------------------------------------------------------------------------
+
+# Keys are casefolded wrong names; values are the correct replacement.
+# Casefolding keys at definition time means each lookup is a single O(1)
+# dict access rather than a linear scan — important since this is called
+# once per candidate row across thousands of records.
+CANDIDATE_NAME_CORRECTIONS: dict[str, str] = {
+    "jb pritzer": "JB PRITZKER",
+}
+
+
+def normalize_candidate_name(
+    name: str,
+    corrections: dict[str, str] = CANDIDATE_NAME_CORRECTIONS,
+) -> str:
+    """
+    Apply known name corrections to a candidate's full name.
+
+    ``corrections`` maps casefolded wrong names to their correct replacements.
+    The corrected value is returned exactly as written in the dict value.
+
+    Returns the original name unchanged if no correction applies.
+    """
+    return corrections.get(name.casefold(), name)

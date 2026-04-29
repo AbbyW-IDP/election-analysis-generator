@@ -2,13 +2,11 @@
 Tests for election_analysis.analysis (ElectionAnalyzer)
 """
 
-from datetime import date
 
 import pytest
 import pandas as pd
 
 from src.election_analysis_generator.analysis import ElectionAnalyzer
-from src.election_analysis_generator.models import Election
 from tests.conftest import seed_election
 
 

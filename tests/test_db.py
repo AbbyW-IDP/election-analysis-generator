@@ -2,7 +2,6 @@
 Tests for election_analysis.db (ElectionDatabase)
 """
 
-import sqlite3
 from datetime import date
 from pathlib import Path
 
@@ -153,7 +152,6 @@ class TestInsertElection:
     def test_elections_ballots_cast_comes_from_toml(self, db):
         """Elections-level ballots_cast comes from elections.toml (the Election object),
         not from CSV rows. Per-contest figures are stored on candidates instead."""
-        from src.election_analysis_generator.models import Election
         from datetime import date
 
         election = Election(

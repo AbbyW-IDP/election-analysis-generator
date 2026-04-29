@@ -1,5 +1,5 @@
 """
-election_analysis/cli.py
+election_analysis_generator/cli.py
 -----------------------
 Command-line entry points for the election_analysis package.
 
