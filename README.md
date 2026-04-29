@@ -154,13 +154,13 @@ Current corrections:
 |---|---|
 | `JB PRITZER` | `JB PRITZKER` |
 
-To add a new correction, append a tuple to `CANDIDATE_NAME_CORRECTIONS` in `normalize.py`:
+To add a new correction, add an entry to `CANDIDATE_NAME_CORRECTIONS` in `normalize.py`. Keys must be casefolded (lowercase):
 
 ```python
-CANDIDATE_NAME_CORRECTIONS: list[tuple[str, str]] = [
-    ("JB PRITZER", "JB PRITZKER"),
-    ("WRONG NAME", "CORRECT NAME"),  # new
-]
+CANDIDATE_NAME_CORRECTIONS: dict[str, str] = {
+    "jb pritzer": "JB PRITZKER",
+    "wrong name": "CORRECT NAME",  # new
+}
 ```
 
 ---

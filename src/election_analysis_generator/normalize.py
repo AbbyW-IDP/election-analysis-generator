@@ -137,30 +137,25 @@ def normalize_party(raw: str | None) -> str | None:
 # Candidate name corrections
 # ---------------------------------------------------------------------------
 
-# Each entry is (wrong_name, correct_name).
-# Comparisons are case-insensitive exact string matches.
-CANDIDATE_NAME_CORRECTIONS: list[tuple[str, str]] = [
-    ("JB PRITZER", "JB PRITZKER"),
-]
+# Keys are casefolded wrong names; values are the correct replacement.
+# Casefolding keys at definition time means each lookup is a single O(1)
+# dict access rather than a linear scan — important since this is called
+# once per candidate row across thousands of records.
+CANDIDATE_NAME_CORRECTIONS: dict[str, str] = {
+    "jb pritzer": "JB PRITZKER",
+}
 
 
 def normalize_candidate_name(
     name: str,
-    corrections: list[tuple[str, str]] = CANDIDATE_NAME_CORRECTIONS,
+    corrections: dict[str, str] = CANDIDATE_NAME_CORRECTIONS,
 ) -> str:
     """
     Apply known name corrections to a candidate's full name.
 
-    Each entry in ``corrections`` is a 2-tuple:
-        (wrong_name, correct_name)
-
-    Matching is case-insensitive. The corrected value is returned exactly
-    as written in the corrections list.
+    ``corrections`` maps casefolded wrong names to their correct replacements.
+    The corrected value is returned exactly as written in the dict value.
 
     Returns the original name unchanged if no correction applies.
     """
-    for wrong_name, correct_name in corrections:
-        if name.casefold() == wrong_name.casefold():
-            return correct_name
-
-    return name
+    return corrections.get(name.casefold(), name)

@@ -155,7 +155,7 @@ class TestNormalizeParty:
 
 
 class TestNormalizeCandidateName:
-    # --- Pritzker correction (default corrections list) ---
+    # --- Pritzker correction (default corrections dict) ---
 
     def test_exact_match(self):
         assert normalize_candidate_name("JB PRITZER") == "JB PRITZKER"
@@ -166,11 +166,10 @@ class TestNormalizeCandidateName:
     def test_mixed_case(self):
         assert normalize_candidate_name("JB Pritzer") == "JB PRITZKER"
 
-    # --- Corrected value comes from the corrections list exactly ---
+    # --- Corrected value comes from the corrections dict exactly ---
 
-    def test_corrected_value_is_from_corrections_list(self):
-        """The returned name is the correct_name from the tuple,
-        not a transformation of the input."""
+    def test_corrected_value_is_from_corrections_dict(self):
+        """The returned name is the dict value, not a transformation of the input."""
         assert normalize_candidate_name("jb pritzer") == "JB PRITZKER"
 
     # --- Non-matching cases — original value returned unchanged ---
@@ -184,24 +183,24 @@ class TestNormalizeCandidateName:
     def test_unrelated_candidate_unchanged(self):
         assert normalize_candidate_name("Jane Smith") == "Jane Smith"
 
-    # --- Custom corrections iterable ---
+    # --- Custom corrections dict ---
 
     def test_custom_corrections_applied(self):
-        custom = [("ROB BLAGOJEVICH", "ROD BLAGOJEVICH")]
+        custom = {"rob blagojevich": "ROD BLAGOJEVICH"}
         assert normalize_candidate_name("ROB BLAGOJEVICH", custom) == "ROD BLAGOJEVICH"
 
     def test_custom_corrections_replace_default(self):
-        """Passing a custom list does not also apply the default corrections."""
-        custom = [("ROB BLAGOJEVICH", "ROD BLAGOJEVICH")]
+        """Passing a custom dict does not also apply the default corrections."""
+        custom = {"rob blagojevich": "ROD BLAGOJEVICH"}
         assert normalize_candidate_name("JB PRITZER", custom) == "JB PRITZER"
 
-    def test_empty_corrections_list_returns_original(self):
-        assert normalize_candidate_name("JB PRITZER", []) == "JB PRITZER"
+    def test_empty_corrections_dict_returns_original(self):
+        assert normalize_candidate_name("JB PRITZER", {}) == "JB PRITZER"
 
     def test_multiple_corrections_all_applied(self):
-        custom = [
-            ("JB PRITZER", "JB PRITZKER"),
-            ("ROB BLAGOJEVICH", "ROD BLAGOJEVICH"),
-        ]
+        custom = {
+            "jb pritzer": "JB PRITZKER",
+            "rob blagojevich": "ROD BLAGOJEVICH",
+        }
         assert normalize_candidate_name("ROB BLAGOJEVICH", custom) == "ROD BLAGOJEVICH"
         assert normalize_candidate_name("JB PRITZER", custom) == "JB PRITZKER" 
