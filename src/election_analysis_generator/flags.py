@@ -16,7 +16,6 @@ are now thin shims that open the database and delegate here.
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pandas as pd

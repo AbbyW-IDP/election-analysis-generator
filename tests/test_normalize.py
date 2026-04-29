@@ -2,7 +2,6 @@
 Tests for election_analysis.normalize
 """
 
-import pytest
 from src.election_analysis_generator.normalize import (
     normalize_contest_name,
     normalize_candidate_name,
@@ -148,7 +147,6 @@ class TestNormalizeParty:
         assert normalize_party(None) is None
 
     def test_nan_returns_none(self):
-        import math
 
         assert normalize_party(float("nan")) is None
 

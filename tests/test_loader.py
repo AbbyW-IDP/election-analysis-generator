@@ -2,7 +2,6 @@
 Tests for election_analysis.loader (ElectionLoader)
 """
 
-import textwrap
 from datetime import date
 from pathlib import Path
 
@@ -18,7 +17,6 @@ from src.election_analysis_generator.loader import (
     REQUIRED_CSV_COLUMNS,
     OPTIONAL_CSV_COLUMNS,
 )
-from tests.conftest import seed_election
 
 CSV_HEADER = "line number,contest name,choice name,party name,total votes,percent of votes,registered voters,ballots cast,num Precinct total,num Precinct rptg,over votes,under votes"
 
