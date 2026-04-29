@@ -35,7 +35,7 @@ jobs:
         uses: oxsecurity/megalinter/flavors/python@v9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ENABLE_LINTERS: >-
+          ENABLE_LINTERS: |
             PYTHON_RUFF
             PYTHON_RUFF_FORMAT
             PYTHON_MYPY
