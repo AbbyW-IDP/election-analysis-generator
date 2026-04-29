@@ -114,7 +114,7 @@ class ElectionAnalyzer:
               AND ca.party IN ({_placeholders(len(parties))})
               AND co.is_legislation = 0
             GROUP BY e.id, co.contest_name, ca.party
-            """,
+            """,  # nosec B608 - placeholders only, values passed as parameters
             list(election_ids) + list(parties),
         )
 
@@ -274,7 +274,7 @@ class ElectionAnalyzer:
             WHERE e.id IN ({_placeholders(len(election_ids))})
               AND co.is_legislation = 0
             GROUP BY e.id, co.contest_name
-            """,
+            """,    # nosec B608 - placeholders only, values passed as parameters
             election_ids,
         )
 
@@ -407,7 +407,7 @@ class ElectionAnalyzer:
             JOIN elections e ON ca.election_id = e.id
             WHERE e.id IN ({_placeholders(len(election_ids))})
             ORDER BY ca.year, ca.contest_name, ca.party, ca.choice_name
-            """,
+            """,  # nosec B608 - placeholders only, values passed as parameters
             election_ids,
         )
         return df
