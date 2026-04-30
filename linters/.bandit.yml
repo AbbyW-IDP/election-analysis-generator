@@ -1,4 +1,0 @@
-skips: []
-
-per_file_ignores:
-  - "tests/*: B101"
