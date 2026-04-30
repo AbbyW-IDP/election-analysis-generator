@@ -29,6 +29,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install dependencies
+        run: uv sync --all-groups
+
       - name: Run MegaLinter
         uses: oxsecurity/megalinter/flavors/python@v9
         env:
