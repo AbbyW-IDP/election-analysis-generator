@@ -10,4 +10,4 @@ ENABLE_LINTERS:
 FLAVOR_SUGGESTIONS: false
 
 PYTHON_BANDIT_ARGUMENTS: "-c pyproject.toml"
-PYTHON_MYPY_ARGUMENTS: "--package election_analysis_generator"
+PYTHON_MYPY_CONFIG_FILE: pyproject.toml
