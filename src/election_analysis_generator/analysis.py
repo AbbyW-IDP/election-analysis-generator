@@ -129,17 +129,16 @@ class ElectionAnalyzer:
         election_ids × parties has votes > 0.
         """
         required = len(election_ids) * len(parties)
-        valid = (
+        filtered: pd.DataFrame = (
             totals[
                 totals["election_id"].isin(election_ids)
                 & totals["party"].isin(parties)
                 & (totals["party_total"] > 0)
             ]
             .groupby("contest_name")
-            .filter(lambda g: len(g) == required)["contest_name"]
-            .drop_duplicates()
+            .filter(lambda g: len(g) == required)
         )
-        return set(valid.tolist())
+        return set(filtered["contest_name"].tolist())
 
     # ------------------------------------------------------------------
     # Analysis: percent change by party
@@ -215,7 +214,8 @@ class ElectionAnalyzer:
                     ordered.append(col)
 
         result = pivot[ordered].copy()
-        assert isinstance(result, pd.DataFrame)
+        if not isinstance(result, pd.DataFrame):
+            raise TypeError(f"Expected DataFrame after column selection, got {type(result).__name__}")
         return result.rename(columns={"contest_name": "contest"})
 
     # ------------------------------------------------------------------
@@ -317,7 +317,8 @@ class ElectionAnalyzer:
                 ordered.append(pp_col)
 
         result = pivot[ordered].copy()
-        assert isinstance(result, pd.DataFrame)
+        if not isinstance(result, pd.DataFrame):
+            raise TypeError(f"Expected DataFrame after column selection, got {type(result).__name__}")
         return result.rename(columns={"contest_name": "contest"})
 
     # ------------------------------------------------------------------
