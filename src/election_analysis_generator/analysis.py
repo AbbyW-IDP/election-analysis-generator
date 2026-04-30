@@ -124,6 +124,11 @@ class ElectionAnalyzer:
         election_ids: list[int],
         parties: tuple[str, ...] = ("DEM", "REP"),
     ) -> set[str]:
+        """
+        Return contests where every party got at least 1 vote in each election.
+
+        This is used to compare contests across elections.
+        """
         required = len(election_ids) * len(parties)
 
         filtered = (
@@ -136,7 +141,7 @@ class ElectionAnalyzer:
             .filter(lambda g: len(g) == required)
         )
 
-        if filtered is None:
+        if filtered is None:  # check so pyright doesn't yell at us
             return set()
 
         contest_names = filtered.loc[:, "contest_name"].astype(str).tolist()
