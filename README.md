@@ -8,7 +8,7 @@ Current data covers DuPage County, Illinois (2014, 2018, 2022, 2026), sourced fr
 
 ## Repository structure
 
-```
+```text
 .
 ├── README.md
 ├── pyproject.toml
@@ -98,7 +98,7 @@ ballots_cast      = 161738
 ```
 
 | Field | Required | Description |
-|---|---|---|
+| --- | --- | --- |
 | `name` | Yes | Display name used throughout the codebase |
 | `source_file` | Yes | CSV filename in `sources/` (basename only, no path prefix) |
 | `detail_file` | No | Excel filename in `sources/` containing precinct-level results |
@@ -126,7 +126,7 @@ This writes `election_analysis.xlsx` with sheets for turnout, party vote-share, 
 Raw contest names vary across years. The following transformations are applied automatically on load:
 
 | Rule | Example input | Normalized output |
-|---|---|---|
+| --- | --- | --- |
 | Uppercase | `United States Senator` | `UNITED STATES SENATOR` |
 | Strip party suffixes | `FOR SENATOR - D*` | `FOR SENATOR` |
 | Strip parentheticals | `FOR SENATOR (Vote For 1)` | `FOR SENATOR` |
@@ -151,7 +151,7 @@ Matching is case-insensitive exact string matching. The corrected value is retur
 Current corrections:
 
 | Wrong name | Correct name |
-|---|---|
+| --- | --- |
 | `JB PRITZER` | `JB PRITZKER` |
 
 To add a new correction, add an entry to `CANDIDATE_NAME_CORRECTIONS` in `normalize.py`. Keys must be casefolded (lowercase):
@@ -185,7 +185,7 @@ uv run import-flags        # applies your decisions to the DB
 Set the **Status** column for each flag row:
 
 | Status | Meaning |
-|---|---|
+| --- | --- |
 | `unreviewed` | Default — skipped on import |
 | `accepted` | Accept the Normalized Suggestion as a new contest name |
 | `mapped` | Map to an existing contest — fill in **Override Target** with a name from `known_contests` |
@@ -230,7 +230,7 @@ When a flag is marked `mapped`, an entry is added to `contest_name_overrides` li
 **`elections`** — one row per election event
 
 | Column | Description |
-|---|---|
+| --- | --- |
 | `id` | Primary key |
 | `name` | Display name (e.g. `"2026 General Primary"`) |
 | `year` | Election year |
@@ -245,14 +245,14 @@ When a flag is marked `mapped`, an entry is added to `contest_name_overrides` li
 **`contests`** — one row per unique normalized contest name
 
 | Column | Description |
-|---|---|
+| --- | --- |
 | `contest_name` | Normalized name (primary key) |
 | `is_legislation` | `1` if this is a ballot measure, `0` if partisan |
 
 **`candidates`** — one row per candidate per contest per election
 
 | Column | Description |
-|---|---|
+| --- | --- |
 | `contest_id` | FK → `contests` |
 | `election_id` | FK → `elections` |
 | `contest_name_raw` | Original contest name from the source file |
@@ -272,7 +272,7 @@ When a flag is marked `mapped`, an entry is added to `contest_name_overrides` li
 **`candidate_precinct_results`** — precinct-level vote breakdown from detail Excel files
 
 | Column | Description |
-|---|---|
+| --- | --- |
 | `id` | Primary key |
 | `election_id` | FK → `elections` |
 | `contest_id` | FK → `contests` |

@@ -114,7 +114,7 @@ class ElectionAnalyzer:
               AND ca.party IN ({_placeholders(len(parties))})
               AND co.is_legislation = 0
             GROUP BY e.id, co.contest_name, ca.party
-            """,
+            """,  # nosec B608 - placeholders only, values passed as parameters
             list(election_ids) + list(parties),
         )
 
@@ -125,21 +125,27 @@ class ElectionAnalyzer:
         parties: tuple[str, ...] = ("DEM", "REP"),
     ) -> set[str]:
         """
-        Return contest names where every combination of
-        election_ids × parties has votes > 0.
+        Return contests where every party got at least 1 vote in each election.
+
+        This is used to compare contests across elections.
         """
         required = len(election_ids) * len(parties)
-        valid = (
+
+        filtered = (
             totals[
                 totals["election_id"].isin(election_ids)
                 & totals["party"].isin(parties)
                 & (totals["party_total"] > 0)
             ]
             .groupby("contest_name")
-            .filter(lambda g: len(g) == required)["contest_name"]
-            .unique()
+            .filter(lambda g: len(g) == required)
         )
-        return set(valid)
+
+        if filtered is None:  # check so pyright doesn't yell at us
+            return set()
+
+        contest_names = filtered.loc[:, "contest_name"].astype(str).tolist()
+        return set(contest_names)
 
     # ------------------------------------------------------------------
     # Analysis: percent change by party
@@ -173,17 +179,20 @@ class ElectionAnalyzer:
                 ... (repeated per party)
         """
         a, b = _resolve_elections(self._db, [election_a, election_b])
-        totals = self._get_party_totals([a.id, b.id], parties)
+        if a.id is None or b.id is None:
+            raise RuntimeError("Resolved election has no id")
+        election_ids_ab: list[int] = [a.id, b.id]
+        totals = self._get_party_totals(election_ids_ab, parties)
 
         if comparable_only:
-            contests = self._comparable_contests(totals, [a.id, b.id], parties)
+            contests = self._comparable_contests(totals, election_ids_ab, parties)
         else:
-            contests = set(totals["contest_name"].unique())
+            contests = set(totals["contest_name"].drop_duplicates().tolist())
 
         if not contests:
             return pd.DataFrame(columns=["contest"])
 
-        df = totals[totals["contest_name"].isin(contests)].copy()
+        df = totals[totals["contest_name"].isin(list(contests))].copy()
 
         pivot = df.pivot_table(
             index="contest_name",
@@ -211,7 +220,10 @@ class ElectionAnalyzer:
                 if col in pivot.columns:
                     ordered.append(col)
 
-        return pivot[ordered].rename(columns={"contest_name": "contest"})
+        result = pivot[ordered].copy()
+        if not isinstance(result, pd.DataFrame):
+            raise TypeError(f"Expected DataFrame after column selection, got {type(result).__name__}")
+        return result.rename(columns={"contest_name": "contest"})
 
     # ------------------------------------------------------------------
     # Analysis: party share of total votes
@@ -250,14 +262,14 @@ class ElectionAnalyzer:
             raise ValueError("party_share requires at least 2 elections.")
 
         resolved = _resolve_elections(self._db, list(elections))
-        election_ids = [e.id for e in resolved]
+        election_ids: list[int] = [e.id for e in resolved if e.id is not None]
 
         totals = self._get_party_totals(election_ids, parties)
 
         if comparable_only:
             contests = self._comparable_contests(totals, election_ids, parties)
         else:
-            contests = set(totals["contest_name"].unique())
+            contests = set(totals["contest_name"].drop_duplicates().tolist())
 
         if not contests:
             return pd.DataFrame(columns=["contest"])
@@ -274,11 +286,11 @@ class ElectionAnalyzer:
             WHERE e.id IN ({_placeholders(len(election_ids))})
               AND co.is_legislation = 0
             GROUP BY e.id, co.contest_name
-            """,
+            """,    # nosec B608 - placeholders only, values passed as parameters
             election_ids,
         )
 
-        df = totals[totals["contest_name"].isin(contests)].copy()
+        df = totals[totals["contest_name"].isin(list(contests))].copy()
         df = df.merge(all_totals, on=["election_id", "election_name", "contest_name"])
         df["vote_share"] = df["party_total"] / df["contest_total"]
 
@@ -311,7 +323,10 @@ class ElectionAnalyzer:
             if pp_col in pivot.columns:
                 ordered.append(pp_col)
 
-        return pivot[ordered].rename(columns={"contest_name": "contest"})
+        result = pivot[ordered].copy()
+        if not isinstance(result, pd.DataFrame):
+            raise TypeError(f"Expected DataFrame after column selection, got {type(result).__name__}")
+        return result.rename(columns={"contest_name": "contest"})
 
     # ------------------------------------------------------------------
     # Analysis: turnout
@@ -377,9 +392,9 @@ class ElectionAnalyzer:
         """
         if elections:
             resolved = _resolve_elections(self._db, list(elections))
-            election_ids = [e.id for e in resolved]
+            election_ids: list[int] = [e.id for e in resolved if e.id is not None]
         else:
-            election_ids = [e.id for e in self._db.get_all_elections()]
+            election_ids = [e.id for e in self._db.get_all_elections() if e.id is not None]
 
         if not election_ids:
             return pd.DataFrame()
@@ -407,7 +422,7 @@ class ElectionAnalyzer:
             JOIN elections e ON ca.election_id = e.id
             WHERE e.id IN ({_placeholders(len(election_ids))})
             ORDER BY ca.year, ca.contest_name, ca.party, ca.choice_name
-            """,
+            """,  # nosec B608 - placeholders only, values passed as parameters
             election_ids,
         )
         return df

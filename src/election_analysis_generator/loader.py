@@ -189,7 +189,8 @@ class ElectionLoader:
             # known source so future syncs skip it, but don't re-insert.
             existing = self._db.get_election_by_name(entry["name"])
             if existing is not None:
-                self._db.register_source(filename, existing.id)
+                if existing.id is not None:
+                    self._db.register_source(filename, existing.id)
                 continue
 
             path = sources_dir / filename
@@ -251,5 +252,7 @@ class ElectionLoader:
         # no need to diff the contest_names registry before and after.
         election, new_names = self._db.insert_election(election, df)
 
+        if election.id is None:
+            raise RuntimeError("insert_election did not return an election id")
         self._db.register_source(path.name, election.id)
         return election, new_names

@@ -286,6 +286,8 @@ class ElectionDatabase:
             ),
         )
         election_id = cur.lastrowid
+        if election_id is None:
+            raise RuntimeError("INSERT INTO elections failed to return a row id")
         election = Election(
             id=election_id,
             name=election.name,
@@ -373,7 +375,8 @@ class ElectionDatabase:
         new_names = []
 
         for contest_name in df["contest_name"].unique():
-            self._upsert_contest(contest_name, df[df["contest_name"] == contest_name])
+            contest_rows: pd.DataFrame = df[df["contest_name"] == contest_name]  # type: ignore[assignment]
+            self._upsert_contest(contest_name, contest_rows)
             self._conn.execute(
                 "INSERT OR IGNORE INTO contest_names (contest_name, first_seen_year) VALUES (?,?)",
                 (contest_name, year),
@@ -382,7 +385,8 @@ class ElectionDatabase:
                 new_names.append(contest_name)
 
         if new_names:
-            self._write_flags(df[df["contest_name"].isin(new_names)], year)
+            flagged_rows: pd.DataFrame = df[df["contest_name"].isin(new_names)]  # type: ignore[assignment]
+            self._write_flags(flagged_rows, year)
 
         return sorted(new_names)
 
@@ -430,9 +434,9 @@ class ElectionDatabase:
                 (
                     contest_id,
                     election_id,
-                    int(row["line_number"])
+                    int(row["line_number"])  # type: ignore[arg-type]
                     if row.get("line_number") is not None
-                    and not pd.isna(row.get("line_number"))
+                    and not pd.isna(row.get("line_number"))  # type: ignore[arg-type]
                     else None,
                     row["contest_name_raw"],
                     row["contest_name"],
@@ -476,9 +480,9 @@ class ElectionDatabase:
         # non-empty string values rather than raw truthiness. A blank or
         # whitespace-only party (e.g. from an empty CSV cell) must not be
         # treated as a valid partisan affiliation.
-        has_party = (
-            df["party"].apply(lambda p: isinstance(p, str) and p.strip() != "").any()
-            if "party" in (df := rows).columns
+        has_party: bool = (
+            bool(rows["party"].apply(lambda p: isinstance(p, str) and p.strip() != "").any())
+            if "party" in rows.columns
             else False
         )
         is_legislation = 0 if has_party else 1
@@ -756,7 +760,7 @@ class ElectionDatabase:
             return
         flag_df = df[["contest_name_raw", "contest_name"]].drop_duplicates().copy()
         flag_df["year"] = year
-        flag_rows = flag_df[["year", "contest_name_raw", "contest_name"]].itertuples(
+        flag_rows = flag_df[["year", "contest_name_raw", "contest_name"]].itertuples(  # type: ignore[union-attr]
             index=False
         )
         self._conn.executemany(

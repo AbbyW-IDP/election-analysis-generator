@@ -125,7 +125,7 @@ PARTY_MAP: dict[str, str] = {
 }
 
 
-def normalize_party(raw: str | None) -> str | None:
+def normalize_party(raw: str | float | None) -> str | None:
     """Normalize a raw party code to a canonical abbreviation, or None if blank."""
     if raw is None or (isinstance(raw, float) and pd.isna(raw)):
         return None

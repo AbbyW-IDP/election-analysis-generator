@@ -65,7 +65,7 @@ def export_flags(
     if not flags:
         return 0
 
-    flags_df = pd.DataFrame(flags)[["id", "year", "contest_name_raw", "contest_name"]]
+    flags_df: pd.DataFrame = pd.DataFrame(flags)[["id", "year", "contest_name_raw", "contest_name"]]  # type: ignore[assignment]
     flags_df = flags_df.rename(
         columns={
             "id": "Flag ID",
@@ -187,11 +187,11 @@ def import_flags(
 
     for _, row in df.iterrows():
         status = row["Status"]
-        flag_id = int(row["Flag ID"])
-        year = int(row["Year"])
-        raw_name = row["Raw Name"].strip()
-        normalized = row["Normalized Suggestion"].strip()
-        override_target = row.get("Override Target", "").strip()
+        flag_id = int(str(row["Flag ID"]))
+        year = int(str(row["Year"]))
+        raw_name = str(row["Raw Name"]).strip()
+        normalized = str(row["Normalized Suggestion"]).strip()
+        override_target = str(row.get("Override Target", "")).strip()
 
         if status == "unreviewed":
             counts["skipped"] += 1
