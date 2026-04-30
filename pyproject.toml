@@ -38,3 +38,4 @@ skips = ["*/*_test.py", "*/test_*.py"]
 [tool.mypy]
 mypy_path = "src"
 explicit_package_bases = true
+packages = ["election_analysis_generator"]
