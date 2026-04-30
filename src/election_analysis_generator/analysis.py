@@ -124,12 +124,9 @@ class ElectionAnalyzer:
         election_ids: list[int],
         parties: tuple[str, ...] = ("DEM", "REP"),
     ) -> set[str]:
-        """
-        Return contest names where every combination of
-        election_ids × parties has votes > 0.
-        """
         required = len(election_ids) * len(parties)
-        filtered: pd.DataFrame = (
+
+        filtered = (
             totals[
                 totals["election_id"].isin(election_ids)
                 & totals["party"].isin(parties)
@@ -138,7 +135,12 @@ class ElectionAnalyzer:
             .groupby("contest_name")
             .filter(lambda g: len(g) == required)
         )
-        return set(filtered["contest_name"].tolist())
+
+        if filtered is None:
+            return set()
+
+        contest_names = filtered.loc[:, "contest_name"].astype(str).tolist()
+        return set(contest_names)
 
     # ------------------------------------------------------------------
     # Analysis: percent change by party
