@@ -10,6 +10,7 @@ import pytest
 
 from src.election_analysis_generator.loader import (
     ElectionLoader,
+    LoadSummary,
     _normalize_csv_columns,
     _validate_csv_columns,
     _year_from_filename,
@@ -241,7 +242,7 @@ class TestCsvColumnConstants:
 
 
 # ---------------------------------------------------------------------------
-# ElectionLoader.load_csv
+# LoadSummary.load_csv
 # ---------------------------------------------------------------------------
 
 
@@ -255,7 +256,7 @@ class TestLoaderLoadCsv:
             ],
         )
         config = {"name": "2026 General Primary", "source_file": path.name}
-        loader = ElectionLoader(db)
+        loader = LoadSummary(db)
         election, _ = loader.load_csv(path, config)
         count = db.query("SELECT COUNT(*) AS n FROM candidates").iloc[0]["n"]
         assert count == 2

@@ -426,3 +426,90 @@ class ElectionAnalyzer:
             election_ids,
         )
         return df
+
+    # ------------------------------------------------------------------
+    # Analysis: precinct turnout
+    # ------------------------------------------------------------------
+
+    def precinct_turnout(
+        self,
+        *elections: str | int | Election,
+    ) -> pd.DataFrame:
+        """
+        Return per-candidate, per-contest, per-precinct vote totals and
+        turnout rate for the specified elections (or all elections if none
+        are given).
+
+        Turnout rate is defined as total_votes / registered_voters for that
+        precinct row.  Rows where registered_voters is NULL or zero are
+        included but their turnout_rate is NaN.
+
+        Party is joined from the candidates (summary) table on
+        (election_id, contest_id, choice_name) — no party column is stored
+        in candidate_precinct_results itself.
+
+        Legislation contests (is_legislation = 1) are excluded.
+
+        Args:
+            *elections: Election names, ids, or Election objects.
+                        If omitted, all elections in the database are used.
+
+        Returns:
+            DataFrame with columns:
+                election, year, contest, party, candidate, precinct,
+                registered_voters, early_votes, vote_by_mail, polling,
+                provisional, total_votes, turnout_rate
+            Ordered by year, election name, contest, party, candidate, precinct.
+        """
+        if elections:
+            resolved = _resolve_elections(self._db, list(elections))
+            election_ids: list[int] = [e.id for e in resolved if e.id is not None]
+        else:
+            election_ids = [
+                e.id for e in self._db.get_all_elections() if e.id is not None
+            ]
+
+        if not election_ids:
+            return pd.DataFrame()
+
+        df = self._db.query(
+            f"""
+            SELECT
+                e.name                      AS election,
+                e.year,
+                co.contest_name             AS contest,
+                ca.party,
+                pr.choice_name              AS candidate,
+                pr.precinct,
+                pr.registered_voters,
+                pr.early_votes,
+                pr.vote_by_mail,
+                pr.polling,
+                pr.provisional,
+                pr.total_votes
+            FROM candidate_precinct_results pr
+            JOIN elections e   ON pr.election_id = e.id
+            JOIN contests  co  ON pr.contest_id  = co.id
+            LEFT JOIN candidates ca
+                ON  ca.election_id = pr.election_id
+                AND ca.contest_id  = pr.contest_id
+                AND ca.choice_name = pr.choice_name
+            WHERE e.id IN ({_placeholders(len(election_ids))})
+              AND co.is_legislation = 0
+            ORDER BY e.year, e.name, co.contest_name, ca.party,
+                     pr.choice_name, pr.precinct
+            """,  # nosec B608 — placeholders only, values passed as params
+            election_ids,
+        )
+
+        if df.empty:
+            return df
+
+        df["turnout_rate"] = df.apply(
+            lambda r: r["total_votes"] / r["registered_voters"]
+            if r["registered_voters"] and r["registered_voters"] > 0
+            else None,
+            axis=1,
+        )
+
+        return df

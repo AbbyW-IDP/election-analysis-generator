@@ -47,3 +47,8 @@ analysis  = "aggregated_csv"
 sheet     = "raw data"
 elections = ["2022 General Primary", "2026 General Primary"]
 # elections omitted → includes all elections in the database
+
+[[reports.primary-comparison.analyses]]
+analysis  = "precinct_turnout"
+sheet     = "precinct turnout"
+elections = ["2026 General Primary"]   # omit to include all elections

@@ -13,6 +13,7 @@ sync-sources      = "election_analysis_generator.cli:sync_sources"
 generate-analysis = "election_analysis_generator.cli:generate_analysis"
 export-flags      = "election_analysis_generator.cli:export_flags_cmd"
 import-flags      = "election_analysis_generator.cli:import_flags_cmd"
+load-detail       = "election_analysis_generator.cli:load_detail"
 review-flags      = "election_analysis_generator.cli:review_flags_cmd"
 
 [build-system]
