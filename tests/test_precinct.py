@@ -300,7 +300,7 @@ class TestLoadPrecinctDetailParsing:
         )
         import openpyxl
         wb = openpyxl.Workbook()
-        ws = wb.active
+        ws = ws = wb.create_sheet()
         ws.title = "2"
         # Row 0: contest
         ws.append(("FOR SENATOR (Vote For 1)",) + (None,) * 12)
