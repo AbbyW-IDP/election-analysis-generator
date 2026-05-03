@@ -112,7 +112,7 @@ def _make_minimal_workbook(tmp_path: Path, rows: list[tuple], sheet_name: str = 
     import openpyxl
 
     wb = openpyxl.Workbook()
-    ws = wb.active
+    ws = wb.create_sheet()
     ws.title = sheet_name
 
     for row in rows:
