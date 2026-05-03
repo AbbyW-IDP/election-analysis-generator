@@ -96,7 +96,7 @@ class TestLoadSummaryInterface:
         loader = LoadSummary(db)
         loader.load_csv(csv, {"name": "2026 General Primary",
                                "source_file": csv.name})
-        assert db.is_source_loaded(csv.name)
+        assert db.is_file_loaded(csv.name)
 
 
 # ---------------------------------------------------------------------------
@@ -269,7 +269,7 @@ class TestLoadPrecinctDetailParsing:
 
         loader = LoadPrecinctDetail(db)
         loader.load_detail_excel(path, election)
-        assert db.is_source_loaded(path.name)
+        assert db.is_file_loaded(path.name)
 
     def test_idempotent_second_load(self, db, tmp_path):
         election = seed_election(

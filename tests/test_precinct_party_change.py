@@ -28,7 +28,7 @@ from tests.conftest import seed_election
 def _seed_precinct_row(db, election, contest_raw: str, choice_name: str, **overrides):
     """Insert one precinct result row for the given election/contest/candidate."""
     row = db._conn.execute(
-        "SELECT id FROM contests JOIN candidates "
+        "SELECT contests.id FROM contests JOIN candidates "
         "ON contests.id = candidates.contest_id "
         "WHERE candidates.election_id = ? AND candidates.choice_name = ?",
         (election.id, choice_name),
