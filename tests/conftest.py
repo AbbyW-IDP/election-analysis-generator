@@ -30,7 +30,7 @@ def sample_election():
         year=2022,
         election_date=date(2022, 6, 28),
         results_last_updated=date(2022, 7, 19),
-        source_file="2022-general-primary.csv",
+        summary_file="2022-general-primary.csv",
         category="General Primary",
         election_type="midterm",
     )
@@ -91,7 +91,7 @@ def seed_election(
         year=year,
         election_date=election_date,
         results_last_updated=None,
-        source_file=f"{name.lower().replace(' ', '-')}.csv",
+        summary_file=f"{name.lower().replace(' ', '-')}.csv",
         category=category,
         election_type=election_type,
         ballots_cast=ballots_cast,
@@ -99,5 +99,5 @@ def seed_election(
     )
     election, _ = db.insert_election(election, df)
     assert election.id is not None, "election must have an id after insert"  # nosec B101
-    db.register_source(election.source_file, election.id)
+    db.register_file(election.summary_file, election.id)
     return election

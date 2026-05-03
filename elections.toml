@@ -1,7 +1,7 @@
 # elections.toml
 # --------------
 # Define each election here before loading its CSV.
-# source_file must match the CSV filename in the sources/ directory exactly.
+# summary_file must match the CSV filename in the sources/ directory exactly.
 # year is optional if the filename starts with a 4-digit year.
 # election_date and results_last_updated use ISO 8601 format (YYYY-MM-DD).
 
@@ -12,7 +12,7 @@ election_date        = "2014-03-18"
 results_last_updated = "2014-04-07"
 category             = "General Primary"
 election_type        = "midterm"
-source_file          = "2014-general-primary-2018-03-18.csv"
+summary_file          = "2014-general-primary-2018-03-18.csv"
 registered_voters    = 576797
 ballots_cast         = 110696
 
@@ -23,7 +23,7 @@ election_date        = "2018-03-20"
 results_last_updated = "2018-04-09"
 category             = "General Primary"
 election_type        = "midterm"
-source_file          = "2018-general-primary-2018-04-09.csv"
+summary_file          = "2018-general-primary-2018-04-09.csv"
 registered_voters    = 633638
 ballots_cast         = 157671
 
@@ -34,7 +34,7 @@ election_date        = "2022-06-28"
 results_last_updated = "2022-07-19"
 category             = "General Primary"
 election_type        = "midterm"
-source_file          = "2022-general-primary-2022-07-19.csv"
+summary_file          = "2022-general-primary-2022-07-19.csv"
 registered_voters    = 636341
 ballots_cast         = 145051
 
@@ -45,6 +45,7 @@ election_date        = "2026-04-07"
 results_last_updated = "2026-04-07"
 category             = "General Primary"
 election_type        = "midterm"
-source_file          = "2026-general-primary-2026-04-07.csv"
+summary_file          = "2026-general-primary-2026-04-07.csv"
+detail_file          = "2026-general-primary-precinct-2026-04-07.xlsx"
 registered_voters    = 636822
 ballots_cast         = 161738

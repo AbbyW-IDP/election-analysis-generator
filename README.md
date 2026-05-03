@@ -22,7 +22,7 @@ Current data covers DuPage County, Illinois (2014, 2018, 2022, 2026), sourced fr
 │   └── election_analysis_generator/       # Package — all logic lives here
 │       ├── models.py               # Dataclasses: Election, Contest, Candidate
 │       ├── db.py                   # ElectionDatabase: all SQLite operations
-│       ├── loader.py               # ElectionLoader: reads config + source files into DB
+│       ├── loader.py               # LoadSummary + LoadPrecinctDetail: reads config + source files into DB
 │       ├── analysis.py             # ElectionAnalyzer: analysis methods → DataFrames
 │       ├── normalize.py            # Pure functions: contest name + party normalization
 │       ├── flags.py                # export_flags(), import_flags(), review_flags()
@@ -213,7 +213,7 @@ When a flag is marked `mapped`, an entry is added to `contest_name_overrides` li
 
 **`db.py` — `ElectionDatabase`** owns all database state: the SQLite connection, schema, contest name registry, flags, overrides, and source file registry. All other classes go through this interface.
 
-**`loader.py` — `ElectionLoader`** reads `elections.toml` and source files, then loads them into an `ElectionDatabase`. `sync()` loads only elections not already registered. Handles both CSV sources and the historical Excel workbook.
+**`loader.py` — `LoadSummary` and `LoadPrecinctDetail`** read `elections.toml` and source files, then load them into an `ElectionDatabase`. `sync()` loads only elections not already registered. Handles both CSV sources and the historical Excel workbook.
 
 **`analysis.py` — `ElectionAnalyzer`** reads from an `ElectionDatabase` and produces analysis DataFrames. Elections can be specified by name, database id, or `Election` object. Methods: `list_elections()`, `pct_change_by_party()`, `party_share()`, `turnout()`.
 

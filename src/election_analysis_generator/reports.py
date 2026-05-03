@@ -233,6 +233,14 @@ def _run_aggregated_csv(
     return analyzer.aggregated_csv(*elections)  # comparable_only not applicable
 
 
+def _run_precinct_turnout(
+    analyzer: ElectionAnalyzer,
+    elections: list[str],
+    comparable_only: bool = True,
+) -> pd.DataFrame:
+    return analyzer.precinct_turnout(*elections)  # comparable_only not applicable
+
+
 ANALYSIS_REGISTRY: dict[
     str, Callable[[ElectionAnalyzer, list[str], bool], pd.DataFrame]
 ] = {
@@ -240,4 +248,5 @@ ANALYSIS_REGISTRY: dict[
     "party_share": _run_party_share,
     "turnout": _run_turnout,
     "aggregated_csv": _run_aggregated_csv,
+    "precinct_turnout": _run_precinct_turnout,
 }

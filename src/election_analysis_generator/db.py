@@ -19,7 +19,7 @@ The database has two kinds of tables:
     contest_names             Registry of all known normalized contest names
     contest_name_flags        Names from new sources that didn't match any known name
     contest_name_overrides    Manual mappings: raw name → canonical normalized name
-    loaded_sources            Tracks which source files have already been loaded
+    loaded_files              Tracks which files have already been loaded
 
 For a full description of each table and column, see README.md.
 """
@@ -46,7 +46,7 @@ _SCHEMA = """
         year                 INTEGER NOT NULL,
         election_date        TEXT,
         results_last_updated TEXT,
-        source_file          TEXT NOT NULL UNIQUE,
+        summary_file         TEXT NOT NULL UNIQUE,
         category             TEXT NOT NULL DEFAULT '',
         election_type        TEXT NOT NULL DEFAULT '',
         ballots_cast         INTEGER,
@@ -105,8 +105,8 @@ _SCHEMA = """
         note                TEXT
     );
 
-    -- Registry of source files that have been loaded
-    CREATE TABLE IF NOT EXISTS loaded_sources (
+    -- Registry of files that have been loaded
+    CREATE TABLE IF NOT EXISTS loaded_files (
         filename            TEXT PRIMARY KEY,
         election_id         INTEGER REFERENCES elections(id),
         loaded_at           TEXT DEFAULT (datetime('now'))
@@ -233,7 +233,7 @@ class ElectionDatabase:
         """
         Insert an Election and all its candidates from a normalized DataFrame.
 
-        This is the main entry point called by ElectionLoader when processing
+        This is the main entry point called by LoadSummary when processing
         a summary CSV. It performs four steps in a single transaction:
 
           1. Inserts the election row into the elections table and captures
@@ -253,7 +253,7 @@ class ElectionDatabase:
             election:   An Election dataclass (id should be None — it will be
                         assigned by the database and returned).
             df:         A DataFrame of candidate rows for this election, as
-                        produced by ElectionLoader. Must contain at minimum:
+                        produced by LoadSummary. Must contain at minimum:
                         contest_name_raw, choice_name, party, total_votes.
 
         Returns:
@@ -267,7 +267,7 @@ class ElectionDatabase:
             """
             INSERT INTO elections
                 (name, year, election_date, results_last_updated,
-                 source_file, category, election_type,
+                 summary_file, category, election_type,
                  ballots_cast, registered_voters)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
@@ -278,7 +278,7 @@ class ElectionDatabase:
                 election.results_last_updated.isoformat()
                 if election.results_last_updated
                 else None,
-                election.source_file,
+                election.summary_file,
                 election.category,
                 election.election_type,
                 election.ballots_cast,
@@ -294,7 +294,7 @@ class ElectionDatabase:
             year=election.year,
             election_date=election.election_date,
             results_last_updated=election.results_last_updated,
-            source_file=election.source_file,
+            summary_file=election.summary_file,
             category=election.category,
             election_type=election.election_type,
             ballots_cast=election.ballots_cast,
@@ -563,7 +563,7 @@ class ElectionDatabase:
             results_last_updated=date.fromisoformat(row["results_last_updated"])
             if row["results_last_updated"]
             else None,
-            source_file=row["source_file"],
+            summary_file=row["summary_file"],
             category=row["category"],
             election_type=row["election_type"],
             ballots_cast=row["ballots_cast"],
@@ -573,9 +573,9 @@ class ElectionDatabase:
     # ------------------------------------------------------------------
     # Source file registry
     #
-    # loaded_sources tracks which source files have already been processed.
-    # ElectionLoader checks is_source_loaded() before attempting to load a
-    # file, and calls register_source() after a successful load. This makes
+    # loaded_files tracks which files have already been processed.
+    # LoadSummary checks is_file_loaded() before attempting to load a
+    # file, and calls register_file() after a successful load. This makes
     # sync-sources idempotent — running it multiple times will not re-load
     # files that are already in the database.
     #
@@ -583,39 +583,39 @@ class ElectionDatabase:
     # "2026-general-primary-2026-04-07.csv"), not a full filesystem path.
     # ------------------------------------------------------------------
 
-    def is_source_loaded(self, filename: str) -> bool:
-        """Return True if this source file has already been loaded.
+    def is_file_loaded(self, filename: str) -> bool:
+        """Return True if this file has already been loaded.
 
-        Called by ElectionLoader before processing a file to avoid loading
+        Called by LoadSummary before processing a file to avoid loading
         the same data twice. The filename must match exactly what was passed
-        to register_source() — typically the basename from elections.toml.
+        to register_file() — typically the basename from elections.toml.
         """
         row = self._conn.execute(
-            "SELECT 1 FROM loaded_sources WHERE filename = ?", (filename,)
+            "SELECT 1 FROM loaded_files WHERE filename = ?", (filename,)
         ).fetchone()
         return row is not None
 
-    def register_source(self, filename: str, election_id: int) -> None:
-        """Mark a source file as loaded, linked to the given election.
+    def register_file(self, filename: str, election_id: int) -> None:
+        """Mark a file as loaded, linked to the given election.
 
-        Called by ElectionLoader after a successful load so that subsequent
+        Called by LoadSummary after a successful load so that subsequent
         sync-sources runs skip this file. INSERT OR IGNORE means calling this
         twice for the same filename is safe.
         """
         self._conn.execute(
-            "INSERT OR IGNORE INTO loaded_sources (filename, election_id) VALUES (?,?)",
+            "INSERT OR IGNORE INTO loaded_files (filename, election_id) VALUES (?,?)",
             (filename, election_id),
         )
         self._conn.commit()
 
-    def get_loaded_sources(self) -> list[dict]:
+    def get_loaded_files(self) -> list[dict]:
         """Return all loaded source records as a list of dicts.
 
         Each dict has keys: filename, election_id, loaded_at. Ordered by
         load time. Used by the CLI to display what has been loaded and when.
         """
         rows = self._conn.execute(
-            "SELECT filename, election_id, loaded_at FROM loaded_sources ORDER BY loaded_at"
+            "SELECT filename, election_id, loaded_at FROM loaded_files ORDER BY loaded_at"
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -665,7 +665,7 @@ class ElectionDatabase:
     # Overrides
     #
     # contest_name_overrides is a manual mapping table: raw name (as it
-    # appears in a source file) → canonical normalized name (as stored in
+    # appears in a summary file) → canonical normalized name (as stored in
     # contests and contest_names). An override is added when a flag is
     # resolved with status "mapped" — meaning the raw name from a new
     # source should be treated as the same contest as an existing one,
@@ -777,9 +777,9 @@ class ElectionDatabase:
     # candidate per contest per election (county-wide total), this table has
     # one row per candidate per contest per precinct per election.
     #
-    # The two tables are populated from different source files and never
+    # The two tables are populated from different input files and never
     # interfere with each other:
-    #   Summary CSV    → candidates          (loaded by ElectionLoader)
+    #   Summary CSV    → candidates          (loaded by LoadSummary)
     #   Detail Excel   → candidate_precinct_results  (loaded by load_detail_excel)
     #
     # Summing total_votes by (election_id, contest_id, choice_name) in this

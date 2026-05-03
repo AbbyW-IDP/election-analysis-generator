@@ -19,7 +19,12 @@ import sys
 from pathlib import Path
 
 from .db import ElectionDatabase, DEFAULT_DB_PATH
-from .loader import ElectionLoader, DEFAULT_SOURCES_DIR, DEFAULT_CONFIG_PATH
+from .loader import (
+    LoadSummary,
+    LoadPrecinctDetail,
+    DEFAULT_SOURCES_DIR,
+    DEFAULT_CONFIG_PATH,
+)
 from .reports import load_reports_config, run_reports, DEFAULT_REPORTS_PATH
 from .flags import (
     export_flags,
@@ -41,7 +46,7 @@ def sync_sources() -> None:
     config_path = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_CONFIG_PATH
 
     with ElectionDatabase(DEFAULT_DB_PATH) as db:
-        loader = ElectionLoader(db)
+        loader = LoadSummary (db)
 
         print(f"Scanning {config_path} for new elections...")
         results = loader.sync(sources_dir=sources_dir, config_path=config_path)
@@ -62,6 +67,25 @@ def sync_sources() -> None:
     if any_flags:
         print("\nRun: review-flags")
         print(" or: export-flags  (for large batches)")
+
+
+def load_detail() -> None:
+    """Load precinct-detail Excel for any elections defined in elections.toml."""
+    sources_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_SOURCES_DIR
+    config_path = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_CONFIG_PATH
+ 
+    with ElectionDatabase(DEFAULT_DB_PATH) as db:
+        loader = LoadPrecinctDetail(db)
+        print(f"Scanning {config_path} for new detail files...")
+        results = loader.sync(sources_dir=sources_dir, config_path=config_path)
+ 
+    if not results:
+        print("No new detail files found.")
+        return
+ 
+    for filename, (election, rows_inserted) in results.items():
+        print(f"  {election.name} ({filename}): {rows_inserted} rows inserted")
+
 
 
 # ---------------------------------------------------------------------------

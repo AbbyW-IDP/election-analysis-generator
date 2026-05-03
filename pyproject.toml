@@ -10,6 +10,7 @@ dependencies = [
 
 [project.scripts]
 sync-sources      = "election_analysis_generator.cli:sync_sources"
+load-detail       = "election_analysis_generator.cli:load_detail"
 generate-analysis = "election_analysis_generator.cli:generate_analysis"
 export-flags      = "election_analysis_generator.cli:export_flags_cmd"
 import-flags      = "election_analysis_generator.cli:import_flags_cmd"

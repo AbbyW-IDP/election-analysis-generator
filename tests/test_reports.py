@@ -463,6 +463,7 @@ class TestAnalysisRegistry:
         assert "party_share" in ANALYSIS_REGISTRY
         assert "turnout" in ANALYSIS_REGISTRY
         assert "aggregated_csv" in ANALYSIS_REGISTRY
+        assert "precinct_turnout" in ANALYSIS_REGISTRY
 
     def test_all_values_are_callable(self):
         for name, fn in ANALYSIS_REGISTRY.items():
@@ -497,3 +498,215 @@ class TestAnalysisRegistry:
         run_reports(reports, db_with_elections, base_dir=tmp_path)
         df = pd.read_excel(tmp_path / "out.xlsx", sheet_name="raw data")
         assert set(df["year"].unique()) == {2022}
+
+
+# ---------------------------------------------------------------------------
+# precinct_turnout — load_reports_config accepts it
+# ---------------------------------------------------------------------------
+
+
+class TestLoadReportsConfigPrecinctTurnout:
+    def test_precinct_turnout_is_accepted_as_valid_analysis(self, tmp_path):
+        p = write_reports_toml(
+            tmp_path,
+            """
+[reports.r]
+
+[[reports.r.analyses]]
+analysis  = "precinct_turnout"
+sheet     = "precinct turnout"
+elections = ["2026 General Primary"]
+""",
+        )
+        result = load_reports_config(p)
+        assert len(result) == 1
+        entry = result[0].analyses[0]
+        assert entry.analysis == "precinct_turnout"
+        assert entry.sheet == "precinct turnout"
+        assert entry.elections == ["2026 General Primary"]
+
+    def test_precinct_turnout_elections_defaults_to_empty(self, tmp_path):
+        p = write_reports_toml(
+            tmp_path,
+            """
+[reports.r]
+
+[[reports.r.analyses]]
+analysis = "precinct_turnout"
+sheet    = "precinct turnout"
+""",
+        )
+        result = load_reports_config(p)
+        assert result[0].analyses[0].elections == []
+
+
+# ---------------------------------------------------------------------------
+# precinct_turnout — run_reports writes a sheet
+# ---------------------------------------------------------------------------
+
+
+def _seed_precinct_election(db):
+    """Seed one election with a summary candidate row AND a precinct result row."""
+    election = seed_election(
+        db,
+        "2026 General Primary",
+        2026,
+        [
+            {
+                "contest_name_raw": "FOR ATTORNEY GENERAL (Vote For 1)",
+                "party": "DEM",
+                "choice_name": "Jane Smith",
+                "total_votes": 100,
+            }
+        ],
+    )
+    contest_id = db._conn.execute("SELECT id FROM contests LIMIT 1").fetchone()[0]
+    db.insert_precinct_results(
+        [
+            {
+                "election_id": election.id,
+                "contest_id": contest_id,
+                "contest_name_raw": "FOR ATTORNEY GENERAL (Vote For 1)",
+                "choice_name": "Jane Smith",
+                "precinct": "Addison 001",
+                "registered_voters": 400,
+                "early_votes": 0,
+                "vote_by_mail": 0,
+                "polling": 100,
+                "provisional": 0,
+                "total_votes": 100,
+            }
+        ]
+    )
+    return election
+
+
+class TestRunReportsPrecinctTurnout:
+    def test_precinct_turnout_sheet_written(self, db, tmp_path):
+        _seed_precinct_election(db)
+        reports = [
+            ReportConfig(
+                key="test",
+                output=Path("out.xlsx"),
+                analyses=[AnalysisEntry("precinct_turnout", "precinct turnout", [])],
+            )
+        ]
+        run_reports(reports, db, base_dir=tmp_path)
+        xl = pd.ExcelFile(tmp_path / "out.xlsx")
+        assert "precinct turnout" in xl.sheet_names
+
+    def test_precinct_turnout_sheet_has_expected_columns(self, db, tmp_path):
+        _seed_precinct_election(db)
+        reports = [
+            ReportConfig(
+                key="test",
+                output=Path("out.xlsx"),
+                analyses=[AnalysisEntry("precinct_turnout", "precinct turnout", [])],
+            )
+        ]
+        run_reports(reports, db, base_dir=tmp_path)
+        df = pd.read_excel(tmp_path / "out.xlsx", sheet_name="precinct turnout")
+        for col in ["election", "year", "contest", "party", "candidate", "precinct",
+                    "total_votes", "turnout_rate"]:
+            assert col in df.columns, f"Missing column: {col!r}"
+
+    def test_precinct_turnout_filtered_by_election(self, db, tmp_path):
+        # Seed two elections, filter to one
+        _seed_precinct_election(db)  # 2026
+        election_2022 = seed_election(
+            db,
+            "2022 General Primary",
+            2022,
+            [
+                {
+                    "contest_name_raw": "FOR ATTORNEY GENERAL (Vote For 1)",
+                    "party": "DEM",
+                    "choice_name": "Jane Smith",
+                    "total_votes": 80,
+                }
+            ],
+        )
+        contest_id = db._conn.execute(
+            "SELECT id FROM contests LIMIT 1"
+        ).fetchone()[0]
+        db.insert_precinct_results(
+            [
+                {
+                    "election_id": election_2022.id,
+                    "contest_id": contest_id,
+                    "contest_name_raw": "FOR ATTORNEY GENERAL (Vote For 1)",
+                    "choice_name": "Jane Smith",
+                    "precinct": "Addison 001",
+                    "registered_voters": 400,
+                    "early_votes": 0,
+                    "vote_by_mail": 0,
+                    "polling": 80,
+                    "provisional": 0,
+                    "total_votes": 80,
+                }
+            ]
+        )
+        reports = [
+            ReportConfig(
+                key="test",
+                output=Path("out.xlsx"),
+                analyses=[
+                    AnalysisEntry(
+                        "precinct_turnout",
+                        "precinct turnout",
+                        ["2026 General Primary"],
+                    )
+                ],
+            )
+        ]
+        run_reports(reports, db, base_dir=tmp_path)
+        df = pd.read_excel(tmp_path / "out.xlsx", sheet_name="precinct turnout")
+        assert set(df["year"].unique()) == {2026}
+
+    def test_precinct_turnout_returns_all_elections_when_none_specified(
+        self, db, tmp_path
+    ):
+        _seed_precinct_election(db)  # 2026
+        reports = [
+            ReportConfig(
+                key="test",
+                output=Path("out.xlsx"),
+                analyses=[AnalysisEntry("precinct_turnout", "precinct turnout", [])],
+            )
+        ]
+        run_reports(reports, db, base_dir=tmp_path)
+        df = pd.read_excel(tmp_path / "out.xlsx", sheet_name="precinct turnout")
+        assert 2026 in df["year"].values
+
+    def test_precinct_turnout_empty_sheet_when_no_detail_data(
+        self, db_with_elections, tmp_path
+    ):
+        # db_with_elections has summary candidates but no precinct rows
+        reports = [
+            ReportConfig(
+                key="test",
+                output=Path("out.xlsx"),
+                analyses=[AnalysisEntry("precinct_turnout", "precinct turnout", [])],
+            )
+        ]
+        run_reports(reports, db_with_elections, base_dir=tmp_path)
+        df = pd.read_excel(tmp_path / "out.xlsx", sheet_name="precinct turnout")
+        assert len(df) == 0
+
+    def test_precinct_turnout_in_mixed_report(self, db, tmp_path):
+        """precinct_turnout and turnout can coexist in the same report."""
+        _seed_precinct_election(db)
+        reports = [
+            ReportConfig(
+                key="test",
+                output=Path("out.xlsx"),
+                analyses=[
+                    AnalysisEntry("turnout", "turnout", []),
+                    AnalysisEntry("precinct_turnout", "precinct turnout", []),
+                ],
+            )
+        ]
+        run_reports(reports, db, base_dir=tmp_path)
+        xl = pd.ExcelFile(tmp_path / "out.xlsx")
+        assert "turnout" in xl.sheet_names
+        assert "precinct turnout" in xl.sheet_names
