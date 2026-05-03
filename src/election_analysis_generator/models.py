@@ -17,7 +17,7 @@ class Election:
     id: int | None
     name: str
     year: int
-    source_file: str
+    summary_file: str
     category: str = ""
     election_type: str = ""
     election_date: date | None = None
@@ -37,7 +37,7 @@ class Contest:
 
 @dataclass
 class Candidate:
-    """A single candidate row from a source file."""
+    """A single candidate row from a summary file."""
 
     id: int | None
     contest_id: int

@@ -10,7 +10,6 @@ import pytest
 
 from src.election_analysis_generator.loader import (
     ElectionLoader,
-    LoadSummary,
     _normalize_csv_columns,
     _validate_csv_columns,
     _year_from_filename,
@@ -34,8 +33,8 @@ def write_toml(tmp_path: Path, entries: list[dict]) -> Path:
     p = tmp_path / "elections.toml"
     lines = []
     for entry in entries:
-        # Derive a slug for the section key from source_file or name
-        raw_key = entry.get("source_file", entry.get("name", "election"))
+        # Derive a slug for the section key from summary_file or name
+        raw_key = entry.get("summary_file", entry.get("name", "election"))
         slug = Path(raw_key).stem.replace(" ", "-").lower()
         lines.append(f"[elections.{slug}]")
         for k, v in entry.items():
@@ -123,7 +122,7 @@ class TestLoadElectionsConfig:
                 {
                     "name": "2026 General Primary",
                     "year": "2026",
-                    "source_file": "2026-general-primary.csv",
+                    "summary_file": "2026-general-primary.csv",
                 }
             ],
         )
@@ -135,8 +134,8 @@ class TestLoadElectionsConfig:
         toml = write_toml(
             tmp_path,
             [
-                {"name": "2022 General Primary", "source_file": "2022.csv"},
-                {"name": "2026 General Primary", "source_file": "2026.csv"},
+                {"name": "2022 General Primary", "summary_file": "2022.csv"},
+                {"name": "2026 General Primary", "summary_file": "2026.csv"},
             ],
         )
         result = load_elections_config(toml)
@@ -242,7 +241,7 @@ class TestCsvColumnConstants:
 
 
 # ---------------------------------------------------------------------------
-# LoadSummary.load_csv
+# ElectionLoader.load_csv
 # ---------------------------------------------------------------------------
 
 
@@ -255,8 +254,8 @@ class TestLoaderLoadCsv:
                 "2,FOR SENATOR (Vote For 1),John Doe,R,4000,100.0,50000,10000,10,10,0,0",
             ],
         )
-        config = {"name": "2026 General Primary", "source_file": path.name}
-        loader = LoadSummary(db)
+        config = {"name": "2026 General Primary", "summary_file": path.name}
+        loader = ElectionLoader(db)
         election, _ = loader.load_csv(path, config)
         count = db.query("SELECT COUNT(*) AS n FROM candidates").iloc[0]["n"]
         assert count == 2
@@ -268,7 +267,7 @@ class TestLoaderLoadCsv:
                 "1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0",
             ],
         )
-        config = {"name": "2026 General Primary", "source_file": path.name}
+        config = {"name": "2026 General Primary", "summary_file": path.name}
         loader = ElectionLoader(db)
         election, _ = loader.load_csv(path, config)
         assert election.id is not None
@@ -282,7 +281,7 @@ class TestLoaderLoadCsv:
             ],
             filename="2022-general-primary.csv",
         )
-        config = {"name": "2022 General Primary", "source_file": path.name}
+        config = {"name": "2022 General Primary", "summary_file": path.name}
         loader = ElectionLoader(db)
         election, _ = loader.load_csv(path, config)
         assert election.year == 2022
@@ -298,7 +297,7 @@ class TestLoaderLoadCsv:
         config = {
             "name": "2026 General Primary",
             "year": 2026,
-            "source_file": path.name,
+            "summary_file": path.name,
         }
         loader = ElectionLoader(db)
         election, _ = loader.load_csv(path, config)
@@ -311,10 +310,10 @@ class TestLoaderLoadCsv:
                 "1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0",
             ],
         )
-        config = {"name": "2026 General Primary", "source_file": path.name}
+        config = {"name": "2026 General Primary", "summary_file": path.name}
         loader = ElectionLoader(db)
         loader.load_csv(path, config)
-        assert db.is_source_loaded(path.name)
+        assert db.is_file_loaded(path.name)
 
     def test_flags_unrecognized_contest_names(self, db, tmp_path):
         path = write_csv(
@@ -323,7 +322,7 @@ class TestLoaderLoadCsv:
                 "1,FOR BRAND NEW CONTEST (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0",
             ],
         )
-        config = {"name": "2026 General Primary", "source_file": path.name}
+        config = {"name": "2026 General Primary", "summary_file": path.name}
         loader = ElectionLoader(db)
         _, new_names = loader.load_csv(path, config)
         assert "FOR BRAND NEW CONTEST" in new_names
@@ -335,7 +334,7 @@ class TestLoaderLoadCsv:
             "line number,contest name,choice name,total votes\n"
             "1,FOR SENATOR,Jane Smith,5000\n"
         )
-        config = {"name": "2026 General Primary", "source_file": p.name}
+        config = {"name": "2026 General Primary", "summary_file": p.name}
         loader = ElectionLoader(db)
         with pytest.raises(ValueError, match="party"):
             loader.load_csv(p, config)
@@ -346,7 +345,7 @@ class TestLoaderLoadCsv:
         p.write_text(
             "contest name,party name,total votes\nFOR SENATOR (Vote For 1),D,5000\n"
         )
-        config = {"name": "2026 General Primary", "source_file": p.name}
+        config = {"name": "2026 General Primary", "summary_file": p.name}
         loader = ElectionLoader(db)
         election, _ = loader.load_csv(p, config)
         assert election.id is not None
@@ -360,7 +359,7 @@ class TestLoaderLoadCsv:
         )
         config = {
             "name": "2026 General Primary",
-            "source_file": path.name,
+            "summary_file": path.name,
             "election_date": "2026-03-17",
         }
         loader = ElectionLoader(db)
@@ -376,7 +375,7 @@ class TestLoaderLoadCsv:
         )
         config = {
             "name": "2026 General Primary",
-            "source_file": path.name,
+            "summary_file": path.name,
             "results_last_updated": "2026-04-21",
         }
         loader = ElectionLoader(db)
@@ -390,7 +389,7 @@ class TestLoaderLoadCsv:
                 "1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0",
             ],
         )
-        config = {"name": "2026 General Primary", "source_file": path.name}
+        config = {"name": "2026 General Primary", "summary_file": path.name}
         loader = ElectionLoader(db)
         election, _ = loader.load_csv(path, config)
         assert election.results_last_updated is None
@@ -404,7 +403,7 @@ class TestLoaderLoadCsv:
         )
         config = {
             "name": "2026 General Primary",
-            "source_file": path.name,
+            "summary_file": path.name,
             "results_last_updated": "2026-04-21",
         }
         loader = ElectionLoader(db)
@@ -434,7 +433,7 @@ class TestLoaderSync:
             [
                 {
                     "name": "2026 General Primary",
-                    "source_file": "2026-general-primary.csv",
+                    "summary_file": "2026-general-primary.csv",
                 }
             ],
         )
@@ -457,7 +456,7 @@ class TestLoaderSync:
             [
                 {
                     "name": "2026 General Primary",
-                    "source_file": "2026-general-primary.csv",
+                    "summary_file": "2026-general-primary.csv",
                 }
             ],
         )
@@ -481,7 +480,7 @@ class TestLoaderSync:
             [
                 {
                     "name": "2026 General Primary",
-                    "source_file": "2026-general-primary.csv",
+                    "summary_file": "2026-general-primary.csv",
                 }
             ],
         )
@@ -496,11 +495,11 @@ class TestLoaderSync:
         ]
         assert count_after_first == count_after_second
 
-    def test_skips_missing_source_files(self, db, tmp_path):
+    def test_skips_missing_summary_files(self, db, tmp_path):
         sources = tmp_path / "sources"
         sources.mkdir()
         toml = write_toml(
-            tmp_path, [{"name": "2026 General Primary", "source_file": "missing.csv"}]
+            tmp_path, [{"name": "2026 General Primary", "summary_file": "missing.csv"}]
         )
         loader = ElectionLoader(db)
         results = loader.sync(sources_dir=sources, config_path=toml)

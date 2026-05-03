@@ -37,9 +37,9 @@ class TestSchema:
         tables = db.query("SELECT name FROM sqlite_master WHERE type='table'")
         assert "contest_name_overrides" in tables["name"].values
 
-    def test_creates_loaded_sources_table(self, db):
+    def test_creates_loaded_files_table(self, db):
         tables = db.query("SELECT name FROM sqlite_master WHERE type='table'")
-        assert "loaded_sources" in tables["name"].values
+        assert "loaded_files" in tables["name"].values
 
     def test_idempotent(self):
         db = ElectionDatabase(":memory:")
@@ -78,7 +78,7 @@ class TestSchema:
             "year",
             "election_date",
             "results_last_updated",
-            "source_file",
+            "summary_file",
             "ballots_cast",
             "registered_voters",
         }
@@ -160,7 +160,7 @@ class TestInsertElection:
             year=2022,
             election_date=date(2022, 6, 28),
             results_last_updated=None,
-            source_file="2022-gp.csv",
+            summary_file="2022-gp.csv",
             ballots_cast=145051,
             registered_voters=636341,
         )
@@ -389,30 +389,30 @@ class TestSetLegislationFlag:
         assert is_leg == 0
 
 
-class TestSourceRegistry:
-    def test_is_source_loaded_false_initially(self, db):
-        assert db.is_source_loaded("2026-general-primary.csv") is False
+class TestFileRegistry:
+    def test_is_file_loaded_false_initially(self, db):
+        assert db.is_file_loaded("2026-general-primary.csv") is False
 
-    def test_is_source_loaded_true_after_registering(self, db):
+    def test_is_file_loaded_true_after_registering(self, db):
         election = seed_election(
             db,
             "2026 General Primary",
             2026,
             [{"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM"}],
         )
-        assert db.is_source_loaded(election.source_file)
+        assert db.is_file_loaded(election.summary_file)
 
-    def test_register_source_idempotent(self, db):
+    def test_register_file_idempotent(self, db):
         election = seed_election(
             db,
             "2026 General Primary",
             2026,
             [{"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM"}],
         )
-        db.register_source(election.source_file, election.id)  # second call
-        sources = db.get_loaded_sources()
+        db.register_file(election.summary_file, election.id)  # second call
+        sources = db.get_loaded_files()
         filenames = [s["filename"] for s in sources]
-        assert filenames.count(election.source_file) == 1
+        assert filenames.count(election.summary_file) == 1
 
 
 class TestOverrides:

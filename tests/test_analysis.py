@@ -716,3 +716,430 @@ class TestAggregatedCsv:
         election = db_with_two_elections.get_election_by_name("2022 General Primary")
         result = analyzer.aggregated_csv(election)
         assert set(result["year"].unique()) == {2022}
+
+
+# ---------------------------------------------------------------------------
+# precinct_turnout
+# ---------------------------------------------------------------------------
+
+
+def _seed_precinct_data(db, election_name, year, rows):
+    """
+    Helper: seed an election with summary candidates AND precinct results.
+    rows is a list of dicts with keys:
+        contest_name_raw, party, choice_name, summary_votes,
+        precinct, registered_voters, early_votes, vote_by_mail,
+        polling, provisional, total_votes
+    """
+    from tests.conftest import seed_election
+
+    # Deduplicate summary rows (one per contest × party × candidate)
+    seen = set()
+    summary_rows = []
+    for r in rows:
+        key = (r["contest_name_raw"], r.get("party"), r.get("choice_name", "Jane Smith"))
+        if key not in seen:
+            seen.add(key)
+            summary_rows.append(
+                {
+                    "contest_name_raw": r["contest_name_raw"],
+                    "party": r.get("party", "DEM"),
+                    "choice_name": r.get("choice_name", "Jane Smith"),
+                    "total_votes": r.get("summary_votes", r.get("total_votes", 100)),
+                }
+            )
+
+    election = seed_election(db, election_name, year, summary_rows)
+
+    contest_id = db._conn.execute("SELECT id FROM contests LIMIT 1").fetchone()[0]
+
+    precinct_rows = []
+    for r in rows:
+        precinct_rows.append(
+            {
+                "election_id": election.id,
+                "contest_id": contest_id,
+                "contest_name_raw": r["contest_name_raw"],
+                "choice_name": r.get("choice_name", "Jane Smith"),
+                "precinct": r["precinct"],
+                "registered_voters": r.get("registered_voters", 500),
+                "early_votes": r.get("early_votes", 0),
+                "vote_by_mail": r.get("vote_by_mail", 0),
+                "polling": r.get("polling", r.get("total_votes", 50)),
+                "provisional": r.get("provisional", 0),
+                "total_votes": r.get("total_votes", 50),
+            }
+        )
+    db.insert_precinct_results(precinct_rows)
+    return election
+
+
+class TestPrecinctTurnout:
+    # ------------------------------------------------------------------ #
+    # Basic shape / contract                                               #
+    # ------------------------------------------------------------------ #
+
+    def test_returns_dataframe(self, db):
+        _seed_precinct_data(
+            db,
+            "2026 General Primary",
+            2026,
+            [
+                {
+                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
+                    "party": "DEM",
+                    "choice_name": "Jane Smith",
+                    "precinct": "Addison 001",
+                    "registered_voters": 500,
+                    "polling": 61,
+                    "total_votes": 61,
+                }
+            ],
+        )
+        analyzer = ElectionAnalyzer(db)
+        result = analyzer.precinct_turnout()
+        assert isinstance(result, pd.DataFrame)
+
+    def test_has_expected_columns(self, db):
+        _seed_precinct_data(
+            db,
+            "2026 General Primary",
+            2026,
+            [
+                {
+                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
+                    "party": "DEM",
+                    "choice_name": "Jane Smith",
+                    "precinct": "Addison 001",
+                    "registered_voters": 500,
+                    "polling": 61,
+                    "total_votes": 61,
+                }
+            ],
+        )
+        analyzer = ElectionAnalyzer(db)
+        result = analyzer.precinct_turnout()
+        for col in [
+            "election",
+            "year",
+            "contest",
+            "party",
+            "candidate",
+            "precinct",
+            "registered_voters",
+            "early_votes",
+            "vote_by_mail",
+            "polling",
+            "provisional",
+            "total_votes",
+            "turnout_rate",
+        ]:
+            assert col in result.columns, f"Missing column: {col!r}"
+
+    def test_returns_empty_df_when_no_precinct_data(self, db):
+        seed_election(
+            db,
+            "2026 General Primary",
+            2026,
+            [{"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM"}],
+        )
+        analyzer = ElectionAnalyzer(db)
+        result = analyzer.precinct_turnout()
+        assert isinstance(result, pd.DataFrame)
+        assert len(result) == 0
+
+    def test_returns_empty_df_when_no_elections_in_db(self, db):
+        analyzer = ElectionAnalyzer(db)
+        result = analyzer.precinct_turnout()
+        assert isinstance(result, pd.DataFrame)
+        assert len(result) == 0
+
+    # ------------------------------------------------------------------ #
+    # Filtering                                                            #
+    # ------------------------------------------------------------------ #
+
+    def test_filters_to_specified_election(self, db):
+        for year, name in [(2022, "2022 General Primary"), (2026, "2026 General Primary")]:
+            _seed_precinct_data(
+                db,
+                name,
+                year,
+                [
+                    {
+                        "contest_name_raw": "FOR SENATOR (Vote For 1)",
+                        "party": "DEM",
+                        "choice_name": "Jane Smith",
+                        "precinct": "Addison 001",
+                        "total_votes": 50,
+                    }
+                ],
+            )
+        analyzer = ElectionAnalyzer(db)
+        result = analyzer.precinct_turnout("2026 General Primary")
+        assert set(result["year"].unique()) == {2026}
+
+    def test_returns_all_elections_when_none_specified(self, db):
+        for year, name in [(2022, "2022 General Primary"), (2026, "2026 General Primary")]:
+            _seed_precinct_data(
+                db,
+                name,
+                year,
+                [
+                    {
+                        "contest_name_raw": "FOR SENATOR (Vote For 1)",
+                        "party": "DEM",
+                        "choice_name": "Jane Smith",
+                        "precinct": "Addison 001",
+                        "total_votes": 50,
+                    }
+                ],
+            )
+        analyzer = ElectionAnalyzer(db)
+        result = analyzer.precinct_turnout()
+        assert set(result["year"].unique()) == {2022, 2026}
+
+    def test_excludes_legislation_contests(self, db):
+        from tests.conftest import make_candidates_df
+        from src.election_analysis_generator.models import Election
+
+        election = Election(
+            id=None,
+            name="2026 General Primary",
+            year=2026,
+            election_date=None,
+            results_last_updated=None,
+            summary_file="2026-gp.csv",
+        )
+        df = make_candidates_df(
+            [{"contest_name_raw": "Referendum Question 1 (Vote For 1)", "party": None}]
+        )
+        election, _ = db.insert_election(election, df)
+        db.register_file(election.summary_file, election.id)
+
+        contest_id = db._conn.execute("SELECT id FROM contests LIMIT 1").fetchone()[0]
+        db.insert_precinct_results(
+            [
+                {
+                    "election_id": election.id,
+                    "contest_id": contest_id,
+                    "contest_name_raw": "Referendum Question 1 (Vote For 1)",
+                    "choice_name": "Yes",
+                    "precinct": "Addison 001",
+                    "registered_voters": 500,
+                    "early_votes": 0,
+                    "vote_by_mail": 0,
+                    "polling": 300,
+                    "provisional": 0,
+                    "total_votes": 300,
+                }
+            ]
+        )
+        analyzer = ElectionAnalyzer(db)
+        result = analyzer.precinct_turnout()
+        assert "REFERENDUM QUESTION 1" not in result["contest"].values
+
+    # ------------------------------------------------------------------ #
+    # turnout_rate calculation                                             #
+    # ------------------------------------------------------------------ #
+
+    def test_turnout_rate_calculation(self, db):
+        _seed_precinct_data(
+            db,
+            "2026 General Primary",
+            2026,
+            [
+                {
+                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
+                    "party": "DEM",
+                    "choice_name": "Jane Smith",
+                    "precinct": "Addison 001",
+                    "registered_voters": 400,
+                    "polling": 100,
+                    "total_votes": 100,
+                }
+            ],
+        )
+        analyzer = ElectionAnalyzer(db)
+        result = analyzer.precinct_turnout()
+        row = result.iloc[0]
+        assert abs(row["turnout_rate"] - 0.25) < 1e-6
+
+    def test_turnout_rate_is_nan_when_registered_voters_is_null(self, db):
+        _seed_precinct_data(
+            db,
+            "2026 General Primary",
+            2026,
+            [
+                {
+                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
+                    "party": "DEM",
+                    "choice_name": "Jane Smith",
+                    "precinct": "Addison 001",
+                    "registered_voters": None,
+                    "polling": 100,
+                    "total_votes": 100,
+                }
+            ],
+        )
+        analyzer = ElectionAnalyzer(db)
+        result = analyzer.precinct_turnout()
+        assert pd.isna(result.iloc[0]["turnout_rate"])
+
+    def test_turnout_rate_is_nan_when_registered_voters_is_zero(self, db):
+        _seed_precinct_data(
+            db,
+            "2026 General Primary",
+            2026,
+            [
+                {
+                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
+                    "party": "DEM",
+                    "choice_name": "Jane Smith",
+                    "precinct": "Addison 001",
+                    "registered_voters": 0,
+                    "polling": 100,
+                    "total_votes": 100,
+                }
+            ],
+        )
+        analyzer = ElectionAnalyzer(db)
+        result = analyzer.precinct_turnout()
+        assert pd.isna(result.iloc[0]["turnout_rate"])
+
+    # ------------------------------------------------------------------ #
+    # Resolve elections (names, ids, Election objects)                     #
+    # ------------------------------------------------------------------ #
+
+    def test_resolves_by_name(self, db):
+        _seed_precinct_data(
+            db,
+            "2026 General Primary",
+            2026,
+            [
+                {
+                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
+                    "party": "DEM",
+                    "choice_name": "Jane Smith",
+                    "precinct": "Addison 001",
+                    "total_votes": 50,
+                }
+            ],
+        )
+        analyzer = ElectionAnalyzer(db)
+        result = analyzer.precinct_turnout("2026 General Primary")
+        assert isinstance(result, pd.DataFrame)
+        assert len(result) > 0
+
+    def test_resolves_by_id(self, db):
+        election = _seed_precinct_data(
+            db,
+            "2026 General Primary",
+            2026,
+            [
+                {
+                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
+                    "party": "DEM",
+                    "choice_name": "Jane Smith",
+                    "precinct": "Addison 001",
+                    "total_votes": 50,
+                }
+            ],
+        )
+        analyzer = ElectionAnalyzer(db)
+        result = analyzer.precinct_turnout(election.id)
+        assert isinstance(result, pd.DataFrame)
+        assert len(result) > 0
+
+    def test_raises_for_unknown_election_name(self, db):
+        analyzer = ElectionAnalyzer(db)
+        with pytest.raises(ValueError, match="Election not found"):
+            analyzer.precinct_turnout("Nonexistent Election")
+
+    # ------------------------------------------------------------------ #
+    # Vote component columns                                               #
+    # ------------------------------------------------------------------ #
+
+    def test_vote_components_stored_correctly(self, db):
+        _seed_precinct_data(
+            db,
+            "2026 General Primary",
+            2026,
+            [
+                {
+                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
+                    "party": "DEM",
+                    "choice_name": "Jane Smith",
+                    "precinct": "Addison 001",
+                    "registered_voters": 1000,
+                    "early_votes": 10,
+                    "vote_by_mail": 20,
+                    "polling": 30,
+                    "provisional": 1,
+                    "total_votes": 61,
+                }
+            ],
+        )
+        analyzer = ElectionAnalyzer(db)
+        result = analyzer.precinct_turnout()
+        row = result.iloc[0]
+        assert row["early_votes"] == 10
+        assert row["vote_by_mail"] == 20
+        assert row["polling"] == 30
+        assert row["provisional"] == 1
+        assert row["total_votes"] == 61
+
+    # ------------------------------------------------------------------ #
+    # Multiple precincts / candidates                                      #
+    # ------------------------------------------------------------------ #
+
+    def test_multiple_precincts_returned(self, db):
+        from tests.conftest import seed_election
+
+        election = seed_election(
+            db,
+            "2026 General Primary",
+            2026,
+            [
+                {
+                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
+                    "party": "DEM",
+                    "choice_name": "Jane Smith",
+                    "total_votes": 150,
+                }
+            ],
+        )
+        contest_id = db._conn.execute("SELECT id FROM contests LIMIT 1").fetchone()[0]
+        db.insert_precinct_results(
+            [
+                {
+                    "election_id": election.id,
+                    "contest_id": contest_id,
+                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
+                    "choice_name": "Jane Smith",
+                    "precinct": "Addison 001",
+                    "registered_voters": 500,
+                    "early_votes": 0,
+                    "vote_by_mail": 0,
+                    "polling": 61,
+                    "provisional": 0,
+                    "total_votes": 61,
+                },
+                {
+                    "election_id": election.id,
+                    "contest_id": contest_id,
+                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
+                    "choice_name": "Jane Smith",
+                    "precinct": "Addison 002",
+                    "registered_voters": 400,
+                    "early_votes": 0,
+                    "vote_by_mail": 0,
+                    "polling": 89,
+                    "provisional": 0,
+                    "total_votes": 89,
+                },
+            ]
+        )
+        analyzer = ElectionAnalyzer(db)
+        result = analyzer.precinct_turnout()
+        assert len(result) == 2
+        assert set(result["precinct"].unique()) == {"Addison 001", "Addison 002"}

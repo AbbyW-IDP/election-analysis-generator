@@ -79,7 +79,7 @@ class ElectionAnalyzer:
         return self._db.query("""
             SELECT id, name, year, election_date, category, election_type,
                    results_last_updated, ballots_cast, registered_voters,
-                   source_file
+                   summary_file
             FROM elections
             ORDER BY year, election_date
         """)

@@ -3,7 +3,7 @@ loader.py
 ---------
 Election data loaders.
 
-Two concrete classes handle different source file formats:
+Two concrete classes handle different input file formats:
 
   LoadSummary       – reads a county-wide summary CSV (one row per
                       candidate per contest) and populates the candidates
@@ -17,7 +17,7 @@ ElectionLoader is a backward-compatible alias for LoadSummary, keeping
 existing call sites unchanged while LoadSummary and LoadPrecinctDetail
 share a common base.
 
-Both classes are idempotent: the database's loaded_sources registry
+Both classes are idempotent: the database's loaded_files registry
 tracks which filenames have been processed, so running sync() or
 load_detail_excel() a second time with the same file is a safe no-op.
 
@@ -149,7 +149,7 @@ def load_elections_config(config_path: Path = DEFAULT_CONFIG_PATH) -> list[dict]
     """
     Read elections.toml and return a list of election config dicts.
 
-    Each entry must have: name, source_file.
+    Each entry must have: name, summary_file.
     Optional: year, election_date, results_last_updated, category,
               election_type, ballots_cast, registered_voters, detail_file.
 
@@ -215,7 +215,7 @@ class LoadSummary(_LoaderBase):
         loaded yet and load them.
 
         Returns:
-            Dict mapping source filename → (Election, new_unrecognized_names)
+            Dict mapping summary filename → (Election, new_unrecognized_names)
             for each newly loaded file.
         """
         if not sources_dir.exists():
@@ -228,8 +228,8 @@ class LoadSummary(_LoaderBase):
 
         results: dict[str, tuple[Election, list[str]]] = {}
         for entry in configs:
-            filename = entry["source_file"]
-            if self._db.is_source_loaded(filename):
+            filename = entry["summary_file"]
+            if self._db.is_file_loaded(filename):
                 continue
 
             # Election may already exist under this name.  Register the CSV
@@ -237,7 +237,7 @@ class LoadSummary(_LoaderBase):
             existing = self._db.get_election_by_name(entry["name"])
             if existing is not None:
                 if existing.id is not None:
-                    self._db.register_source(filename, existing.id)
+                    self._db.register_file(filename, existing.id)
                 continue
 
             path = sources_dir / filename
@@ -261,7 +261,7 @@ class LoadSummary(_LoaderBase):
         Args:
             path:   Path to the CSV file.
             config: Dict from elections.toml with at minimum 'name' and
-                    'source_file'.
+                    'summary_file'.
 
         Returns:
             (Election, new_unrecognized_contest_names)
@@ -290,7 +290,7 @@ class LoadSummary(_LoaderBase):
             results_last_updated=date.fromisoformat(config["results_last_updated"])
             if config.get("results_last_updated")
             else None,
-            source_file=path.name,
+            summary_file=path.name,
             category=config.get("category", ""),
             election_type=config.get("election_type", ""),
             ballots_cast=config.get("ballots_cast"),
@@ -301,7 +301,7 @@ class LoadSummary(_LoaderBase):
 
         if election.id is None:
             raise RuntimeError("insert_election did not return an election id")
-        self._db.register_source(path.name, election.id)
+        self._db.register_file(path.name, election.id)
         return election, new_names
 
 
@@ -328,7 +328,7 @@ class LoadPrecinctDetail(_LoaderBase):
       Row 3+ – one data row per precinct (last row is "Total:")
 
     All sheets for an election file are loaded into the same election_id.
-    The detail filename is registered in loaded_sources so re-running is safe.
+    The detail filename is registered in loaded_files so re-running is safe.
 
     Usage::
 
@@ -367,7 +367,7 @@ class LoadPrecinctDetail(_LoaderBase):
             detail_file = entry.get("detail_file")
             if not detail_file:
                 continue
-            if self._db.is_source_loaded(detail_file):
+            if self._db.is_file_loaded(detail_file):
                 continue
 
             election = self._db.get_election_by_name(entry["name"])
@@ -433,7 +433,7 @@ class LoadPrecinctDetail(_LoaderBase):
             )
             total_inserted += inserted
 
-        self._db.register_source(path.name, election.id)
+        self._db.register_file(path.name, election.id)
         return total_inserted
 
     # ---------------------------------------------------------------------------
