@@ -441,7 +441,7 @@ class ElectionAnalyzer:
         are given).
 
         Turnout rate is defined as total_votes / registered_voters for that
-        precinct row.  Rows where registered_voters is NULL or zero are
+        precinct row. Rows where registered_voters is NULL or zero are
         included but their turnout_rate is NaN.
 
         Party is joined from the candidates (summary) table on

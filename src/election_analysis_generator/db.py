@@ -19,7 +19,7 @@ The database has two kinds of tables:
     contest_names             Registry of all known normalized contest names
     contest_name_flags        Names from new sources that didn't match any known name
     contest_name_overrides    Manual mappings: raw name → canonical normalized name
-    loaded_files            Tracks which files have already been loaded
+    loaded_files              Tracks which files have already been loaded
 
 For a full description of each table and column, see README.md.
 """
@@ -46,7 +46,7 @@ _SCHEMA = """
         year                 INTEGER NOT NULL,
         election_date        TEXT,
         results_last_updated TEXT,
-        summary_file          TEXT NOT NULL UNIQUE,
+        summary_file         TEXT NOT NULL UNIQUE,
         category             TEXT NOT NULL DEFAULT '',
         election_type        TEXT NOT NULL DEFAULT '',
         ballots_cast         INTEGER,

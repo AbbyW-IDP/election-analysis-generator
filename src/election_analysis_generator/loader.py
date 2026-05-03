@@ -7,7 +7,7 @@ Two concrete classes handle different input file formats:
 
   LoadSummary       – reads a county-wide summary CSV (one row per
                       candidate per contest) and populates the candidates
-                      table.  This is what sync() orchestrates.
+                      table. This is what sync() orchestrates.
 
   LoadPrecinctDetail – reads the precinct-detail Excel workbook (one sheet
                        per party per contest, all precincts in that sheet)
@@ -17,8 +17,8 @@ Both classes are idempotent: the database's loaded_files registry
 tracks which filenames have been processed, so running sync() or
 load_detail_excel() a second time with the same file is a safe no-op.
 
-Elections are configured in elections.toml.  Each entry maps a CSV (and
-optionally a detail Excel file) to election metadata.  The loader reads
+Elections are configured in elections.toml. Each entry maps a CSV (and
+optionally a detail Excel file) to election metadata. The loader reads
 the toml, checks which sources have not been loaded yet, and loads any new
 ones.
 """
@@ -47,7 +47,7 @@ VALID_ELECTION_TYPES = frozenset({"presidential", "midterm"})
 # Required columns (post-normalisation names).
 REQUIRED_CSV_COLUMNS = frozenset({"contest_name_raw", "party", "total_votes"})
 
-# All known optional columns.  Any absent ones are added as NaN so the rest
+# All known optional columns. Any absent ones are added as NaN so the rest
 # of the pipeline doesn't need to guard against missing columns.
 OPTIONAL_CSV_COLUMNS = (
     "line_number",
@@ -228,7 +228,7 @@ class LoadSummary(_LoaderBase):
             if self._db.is_file_loaded(filename):
                 continue
 
-            # Election may already exist under this name.  Register the CSV
+            # Election may already exist under this name. Register the CSV
             # as a known source so future syncs skip it, but don't re-insert.
             existing = self._db.get_election_by_name(entry["name"])
             if existing is not None:
@@ -311,7 +311,7 @@ class LoadPrecinctDetail(_LoaderBase):
     Reads the precinct-detail Excel workbook and populates
     candidate_precinct_results.
 
-    The workbook has one sheet per party per contest.  Each sheet contains:
+    The workbook has one sheet per party per contest. Each sheet contains:
 
       Row 0  – contest name (e.g. "FOR UNITED STATES SENATOR ( 1)")
       Row 1  – candidate names, one per block of 5 vote-type columns
@@ -370,7 +370,7 @@ class LoadPrecinctDetail(_LoaderBase):
             if election is None:
                 print(
                     f"  Skipping {detail_file}: election {entry['name']!r} "
-                    "not yet in database.  Run LoadSummary.sync() first."
+                    "not yet in database. Run LoadSummary.sync() first."
                 )
                 continue
 
@@ -395,7 +395,7 @@ class LoadPrecinctDetail(_LoaderBase):
 
         Args:
             path:     Path to the .xlsx detail file.
-            election: The Election this file belongs to.  Must already have
+            election: The Election this file belongs to. Must already have
                       a database id (i.e. the summary CSV was loaded first).
 
         Returns:
@@ -407,7 +407,7 @@ class LoadPrecinctDetail(_LoaderBase):
         """
         if election.id is None:
             raise ValueError(
-                f"Election {election.name!r} has no database id.  "
+                f"Election {election.name!r} has no database id. "
                 "Load the summary CSV first."
             )
         if not path.exists():
@@ -452,7 +452,7 @@ class LoadPrecinctDetail(_LoaderBase):
         sheet_name: str,
     ) -> int:
         """
-        Parse one sheet and insert its precinct rows.  Returns the number of
+        Parse one sheet and insert its precinct rows. Returns the number of
         rows inserted (0 for skipped/unrecognized sheets).
         """
         # Need at least: header row 0, candidate row 1, column row 2, 1 data row
