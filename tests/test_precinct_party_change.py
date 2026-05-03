@@ -147,8 +147,8 @@ class TestPartyChangeReflectedInPrecinctData:
             "2022 General Primary", "2026 General Primary"
         )
 
-        parties_2022 = result[result["election"] == "2022 General Primary"]["party"].unique()
-        parties_2026 = result[result["election"] == "2026 General Primary"]["party"].unique()
+        parties_2022 = result.loc[result["election"] == "2022 General Primary", "party"].unique()
+        parties_2026 = result.loc[result["election"] == "2026 General Primary", "party"].unique()
 
         assert list(parties_2022) == ["DEM"], (
             f"All 2022 precinct rows should be DEM; got {parties_2022}"
@@ -200,10 +200,8 @@ class TestPartyChangeReflectedInPrecinctData:
         )
 
         def _party(election_name, candidate):
-            return result[
-                (result["election"] == election_name)
-                & (result["candidate"] == candidate)
-            ]["party"].iloc[0]
+            mask = (result["election"] == election_name) & (result["candidate"] == candidate)
+            return result.loc[mask, "party"].iloc[0]
 
         assert _party("2022 General Primary", "Jane Smith") == "DEM"
         assert _party("2022 General Primary", "Bob Jones") == "REP"
