@@ -13,10 +13,6 @@ Two concrete classes handle different input file formats:
                        per party per contest, all precincts in that sheet)
                        and populates candidate_precinct_results.
 
-ElectionLoader is a backward-compatible alias for LoadSummary, keeping
-existing call sites unchanged while LoadSummary and LoadPrecinctDetail
-share a common base.
-
 Both classes are idempotent: the database's loaded_files registry
 tracks which filenames have been processed, so running sync() or
 load_detail_excel() a second time with the same file is a safe no-op.
@@ -193,9 +189,9 @@ class LoadSummary(_LoaderBase):
     """
     Reads county-wide summary CSVs and populates the candidates table.
 
-    This mirrors the old ElectionLoader behaviour.  Call sync() to
-    automatically load any elections defined in elections.toml whose CSV
-    hasn't been loaded yet, or call load_csv() directly for a single file.
+    Call sync() to automatically load any elections defined in elections.toml
+    whose CSV hasn't been loaded yet, or call load_csv() directly for a
+    single file.
 
     Usage::
 
@@ -557,12 +553,4 @@ def _int_or_zero(value) -> int:
         return 0
 
 
-# ---------------------------------------------------------------------------
-# Backward-compatible alias
-# ---------------------------------------------------------------------------
 
-#: ElectionLoader is a backward-compatible alias for LoadSummary.
-#: Existing call sites (ElectionLoader(db).sync() / .load_csv()) continue
-#: to work unchanged; new code should use LoadSummary or LoadPrecinctDetail
-#: directly.
-ElectionLoader = LoadSummary

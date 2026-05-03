@@ -233,7 +233,7 @@ class ElectionDatabase:
         """
         Insert an Election and all its candidates from a normalized DataFrame.
 
-        This is the main entry point called by ElectionLoader when processing
+        This is the main entry point called by LoadSummary when processing
         a summary CSV. It performs four steps in a single transaction:
 
           1. Inserts the election row into the elections table and captures
@@ -253,7 +253,7 @@ class ElectionDatabase:
             election:   An Election dataclass (id should be None — it will be
                         assigned by the database and returned).
             df:         A DataFrame of candidate rows for this election, as
-                        produced by ElectionLoader. Must contain at minimum:
+                        produced by LoadSummary. Must contain at minimum:
                         contest_name_raw, choice_name, party, total_votes.
 
         Returns:
@@ -574,7 +574,7 @@ class ElectionDatabase:
     # Source file registry
     #
     # loaded_files tracks which files have already been processed.
-    # ElectionLoader checks is_file_loaded() before attempting to load a
+    # LoadSummary checks is_file_loaded() before attempting to load a
     # file, and calls register_file() after a successful load. This makes
     # sync-sources idempotent — running it multiple times will not re-load
     # files that are already in the database.
@@ -586,7 +586,7 @@ class ElectionDatabase:
     def is_file_loaded(self, filename: str) -> bool:
         """Return True if this file has already been loaded.
 
-        Called by ElectionLoader before processing a file to avoid loading
+        Called by LoadSummary before processing a file to avoid loading
         the same data twice. The filename must match exactly what was passed
         to register_file() — typically the basename from elections.toml.
         """
@@ -598,7 +598,7 @@ class ElectionDatabase:
     def register_file(self, filename: str, election_id: int) -> None:
         """Mark a file as loaded, linked to the given election.
 
-        Called by ElectionLoader after a successful load so that subsequent
+        Called by LoadSummary after a successful load so that subsequent
         sync-sources runs skip this file. INSERT OR IGNORE means calling this
         twice for the same filename is safe.
         """
@@ -779,7 +779,7 @@ class ElectionDatabase:
     #
     # The two tables are populated from different input files and never
     # interfere with each other:
-    #   Summary CSV    → candidates          (loaded by ElectionLoader)
+    #   Summary CSV    → candidates          (loaded by LoadSummary)
     #   Detail Excel   → candidate_precinct_results  (loaded by load_detail_excel)
     #
     # Summing total_votes by (election_id, contest_id, choice_name) in this

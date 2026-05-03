@@ -50,7 +50,7 @@ def _make_precinct_row(**overrides) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# LoadSummary — verify it still behaves as the old ElectionLoader
+# LoadSummary — verify it behaves correctly
 # ---------------------------------------------------------------------------
 
 
@@ -96,7 +96,7 @@ class TestLoadSummaryInterface:
         loader = LoadSummary(db)
         loader.load_csv(csv, {"name": "2026 General Primary",
                                "source_file": csv.name})
-        assert db.is_file_loaded(csv.name)
+        assert db.is_source_loaded(csv.name)
 
 
 # ---------------------------------------------------------------------------
@@ -112,10 +112,8 @@ def _make_minimal_workbook(tmp_path: Path, rows: list[tuple], sheet_name: str = 
     import openpyxl
 
     wb = openpyxl.Workbook()
-    ws = wb.create_sheet(title=sheet_name)
-    # Remove the default empty sheet that Workbook() creates
-    if "Sheet" in wb.sheetnames:
-        del wb["Sheet"]
+    ws = wb.active
+    ws.title = sheet_name
 
     for row in rows:
         ws.append(row)
@@ -160,7 +158,7 @@ class TestLoadPrecinctDetailInit:
 
         election = Election(
             id=None, name="Test", year=2026,
-            summary_file="test.csv",
+            source_file="test.csv",
         )
         path = tmp_path / "detail.xlsx"
         path.write_bytes(b"")
@@ -269,7 +267,7 @@ class TestLoadPrecinctDetailParsing:
 
         loader = LoadPrecinctDetail(db)
         loader.load_detail_excel(path, election)
-        assert db.is_file_loaded(path.name)
+        assert db.is_source_loaded(path.name)
 
     def test_idempotent_second_load(self, db, tmp_path):
         election = seed_election(
@@ -302,9 +300,8 @@ class TestLoadPrecinctDetailParsing:
         )
         import openpyxl
         wb = openpyxl.Workbook()
-        ws = wb.create_sheet(title="2")
-        if "Sheet" in wb.sheetnames:
-            del wb["Sheet"]
+        ws = wb.active
+        ws.title = "2"
         # Row 0: contest
         ws.append(("FOR SENATOR (Vote For 1)",) + (None,) * 12)
         # Row 1: two candidate names
