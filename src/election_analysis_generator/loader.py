@@ -224,7 +224,7 @@ class LoadSummary(_LoaderBase):
 
         results: dict[str, tuple[Election, list[str]]] = {}
         for entry in configs:
-            filename = entry["summary_file"]
+            filename = entry["source_file"]
             if self._db.is_file_loaded(filename):
                 continue
 
@@ -551,6 +551,3 @@ def _int_or_zero(value) -> int:
         return int(value)
     except (ValueError, TypeError):
         return 0
-
-
-

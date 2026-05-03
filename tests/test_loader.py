@@ -313,7 +313,7 @@ class TestLoaderLoadCsv:
         config = {"name": "2026 General Primary", "source_file": path.name}
         loader = LoadSummary(db)
         loader.load_csv(path, config)
-        assert db.is_source_loaded(path.name)
+        assert db.is_file_loaded(path.name)
 
     def test_flags_unrecognized_contest_names(self, db, tmp_path):
         path = write_csv(
