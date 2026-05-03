@@ -7,6 +7,7 @@ Each function is registered as a [project.scripts] entry point in
 pyproject.toml, so after `uv sync` you can run:
 
     sync-sources       Load any new elections defined in elections.toml
+    load-detail        Load precinct-detail Excel files defined in elections.toml
     generate-analysis  Write election_analysis.xlsx
     export-flags       Write flags_review.xlsx for spreadsheet review
     import-flags       Apply a reviewed flags_review.xlsx to the DB
@@ -43,28 +44,38 @@ from .flags import (
 
 
 def sync_sources() -> None:
-    """Load any elections defined in elections.toml whose CSV hasn't been loaded yet."""
+    """Load any elections defined in elections.toml whose CSV or detail file hasn't been loaded yet."""
     sources_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_SOURCES_DIR
     config_path = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_CONFIG_PATH
 
     with ElectionDatabase(DEFAULT_DB_PATH) as db:
-        loader = LoadSummary (db)
+        summary_loader = LoadSummary(db)
 
         print(f"Scanning {config_path} for new elections...")
-        results = loader.sync(sources_dir=sources_dir, config_path=config_path)
+        results = summary_loader.sync(sources_dir=sources_dir, config_path=config_path)
 
-    if not results:
-        print("No new elections found.")
-        return
+        any_flags = False
+        if not results:
+            print("No new elections found.")
+        else:
+            for filename, (election, new_names) in results.items():
+                print(f"\n  {election.name} ({filename}): loaded successfully")
+                if new_names:
+                    any_flags = True
+                    print(f"  ⚠ {len(new_names)} unrecognized contest name(s):")
+                    for name in new_names:
+                        print(f"    {name}")
 
-    any_flags = False
-    for filename, (election, new_names) in results.items():
-        print(f"\n  {election.name} ({filename}): loaded successfully")
-        if new_names:
-            any_flags = True
-            print(f"  ⚠ {len(new_names)} unrecognized contest name(s):")
-            for name in new_names:
-                print(f"    {name}")
+        # Always attempt to load precinct detail files after summary CSVs
+        print(f"\nScanning {config_path} for new precinct detail files...")
+        detail_loader = LoadPrecinctDetail(db)
+        detail_results = detail_loader.sync(sources_dir=sources_dir, config_path=config_path)
+
+        if not detail_results:
+            print("No new detail files found.")
+        else:
+            for filename, (election, rows_inserted) in detail_results.items():
+                print(f"  {election.name} ({filename}): {rows_inserted} precinct rows inserted")
 
     if any_flags:
         print("\nRun: review-flags")

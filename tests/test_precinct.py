@@ -3,7 +3,6 @@ Tests for LoadPrecinctDetail and ElectionAnalyzer.precinct_turnout()
 """
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
@@ -156,7 +155,6 @@ def _standard_sheet_rows(
 class TestLoadPrecinctDetailInit:
     def test_raises_when_election_id_is_none(self, db, tmp_path):
         from src.election_analysis_generator.models import Election
-        from datetime import date
 
         election = Election(
             id=None, name="Test", year=2026,
@@ -331,11 +329,6 @@ class TestLoadPrecinctDetailParsing:
         sources = tmp_path / "sources"
         sources.mkdir()
 
-        election = seed_election(
-            db, "2026 General Primary", 2026,
-            [{"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM",
-              "total_votes": 80}],
-        )
         rows = _standard_sheet_rows()
         path = _make_minimal_workbook(sources, rows, sheet_name="2")
 

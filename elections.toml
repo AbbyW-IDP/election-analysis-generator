@@ -46,16 +46,6 @@ results_last_updated = "2026-04-07"
 category             = "General Primary"
 election_type        = "midterm"
 source_file          = "2026-general-primary-2026-04-07.csv"
-registered_voters    = 636822
-ballots_cast         = 161738
-
-[elections.2026-general-primary-precinct]
-name                 = "2026 General Primary (Precinct)"
-year                 = 2026
-election_date        = "2026-04-07"
-results_last_updated = "2026-04-07"
-category             = "General Primary"
-election_type        = "midterm"
-source_file          = "2026-general-primary-precinct-2026-04-07.xlsx"
+detail_file          = "2026-general-primary-precinct-2026-04-07.xlsx"
 registered_voters    = 636822
 ballots_cast         = 161738
