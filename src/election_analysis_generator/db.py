@@ -43,7 +43,6 @@ _SCHEMA = """
     CREATE TABLE IF NOT EXISTS elections (
         id                   INTEGER PRIMARY KEY AUTOINCREMENT,
         name                 TEXT NOT NULL UNIQUE,
-        key                  TEXT NOT NULL,
         year                 INTEGER NOT NULL,
         election_date        TEXT,
         results_last_updated TEXT,
@@ -144,30 +143,6 @@ _SCHEMA = """
 def _placeholders(n: int) -> str:
     """Return a comma-separated string of n '?' placeholders for use in SQL IN clauses."""
     return ",".join("?" * n)
-
-
-def _make_election_key(year: int, category: str, election_type: str) -> str:
-    """Build the election key from year, category, and election_type.
-
-    The key uniquely identifies the type of election event and is used for
-    cross-database lookups where the auto-incremented id is not portable.
-    Format: "<year> <category> <election_type>", e.g. "2026 General Primary midterm".
-    Empty category or election_type parts are omitted.
-
-    Args:
-        year:          Four-digit election year.
-        category:      Election category (e.g. "General Primary"). May be empty.
-        election_type: Election type (e.g. "midterm"). May be empty.
-
-    Returns:
-        A non-empty key string.
-    """
-    parts = [str(year)]
-    if category:
-        parts.append(category)
-    if election_type:
-        parts.append(election_type)
-    return " ".join(parts)
 
 
 class ElectionDatabase:
@@ -288,18 +263,16 @@ class ElectionDatabase:
                 previously in the contest_names registry and were therefore
                 flagged for review. Empty list if all names were recognized.
         """
-        election_key = _make_election_key(election.year, election.category, election.election_type)
         cur = self._conn.execute(
             """
             INSERT INTO elections
-                (name, key, year, election_date, results_last_updated,
+                (name, year, election_date, results_last_updated,
                  summary_file, category, election_type,
                  ballots_cast, registered_voters)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 election.name,
-                election_key,
                 election.year,
                 election.election_date.isoformat() if election.election_date else None,
                 election.results_last_updated.isoformat()
@@ -318,7 +291,6 @@ class ElectionDatabase:
         election = Election(
             id=election_id,
             name=election.name,
-            key=election_key,
             year=election.year,
             election_date=election.election_date,
             results_last_updated=election.results_last_updated,
@@ -418,6 +390,40 @@ class ElectionDatabase:
 
         return sorted(new_names)
 
+    def _build_contest_id_map(self, contest_names: list[str]) -> dict[str, int]:
+        """Return a {contest_name: id} dict for the given normalized names.
+
+        Fetches all contest ids in a single query rather than one SELECT per
+        candidate row.  Called by _insert_candidates() after _upsert_contests()
+        has guaranteed that every name in the list already exists in contests.
+
+        Args:
+            contest_names: Distinct normalized contest names to look up.
+
+        Returns:
+            Mapping from contest_name to its integer primary key.
+
+        Raises:
+            KeyError: if a name is missing from contests (should never happen
+                when called from within an insert_election() transaction, but
+                surfacing it immediately is better than a None FK violation
+                several rows later).
+        """
+        if not contest_names:
+            return {}
+        placeholders = _placeholders(len(contest_names))
+        rows = self._conn.execute(
+            f"SELECT contest_name, id FROM contests WHERE contest_name IN ({placeholders})",
+            contest_names,
+        ).fetchall()
+        result = {r["contest_name"]: r["id"] for r in rows}
+        missing = set(contest_names) - result.keys()
+        if missing:
+            raise KeyError(
+                f"Contest names not found in contests table: {sorted(missing)}"
+            )
+        return result
+
     def _insert_candidates(
         self,
         df: pd.DataFrame,
@@ -432,56 +438,66 @@ class ElectionDatabase:
         is the summary grain — one number per candidate per contest, not
         broken down by precinct.
 
-        The contest_id FK is resolved here by looking up each row's normalized
-        contest_name in the contests table. This lookup is safe because
-        _upsert_contests() always runs before this method within the same
-        insert_election() transaction, guaranteeing every contest_name in df
-        already exists in contests.
+        The contest_id FK is resolved by building a {contest_name: id} dict
+        once via _build_contest_id_map() — a single SELECT IN query — before
+        processing any rows.  This replaces the previous approach of issuing
+        one SELECT per candidate row (an O(n) round-trip problem).
+
+        Rows are then collected into a list and written with a single
+        executemany() call, which is substantially faster than calling
+        execute() in a Python loop.
 
         election_name and year are denormalized onto each candidate row (they
         could be derived via a JOIN to elections) to make analysis queries
         simpler and faster — ElectionAnalyzer queries candidates directly
         without always needing to join elections.
         """
-        for _, row in df.iterrows():
-            contest_id = self._conn.execute(
-                "SELECT id FROM contests WHERE contest_name = ?",
-                (row["contest_name"],),
-            ).fetchone()["id"]
+        unique_names: list[str] = df["contest_name"].unique().tolist()
+        contest_id_map = self._build_contest_id_map(unique_names)
 
-            self._conn.execute(
-                """
-                INSERT INTO candidates
-                    (contest_id, election_id, line_number, contest_name_raw,
-                     contest_name, election_name, year,
-                     choice_name, party, total_votes, percent_of_votes,
-                     registered_voters, ballots_cast,
-                     num_precinct_total, num_precinct_rptg, over_votes, under_votes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    contest_id,
-                    election_id,
-                    int(row["line_number"])  # type: ignore[arg-type]
-                    if row.get("line_number") is not None
-                    and not pd.isna(row.get("line_number"))  # type: ignore[arg-type]
-                    else None,
-                    row["contest_name_raw"],
-                    row["contest_name"],
-                    election_name,
-                    year,
-                    row.get("choice_name"),
-                    row.get("party"),
-                    row.get("total_votes"),
-                    row.get("percent_of_votes"),
-                    row.get("registered_voters"),
-                    row.get("ballots_cast"),
-                    row.get("num_precinct_total"),
-                    row.get("num_precinct_rptg"),
-                    row.get("over_votes"),
-                    row.get("under_votes"),
-                ),
+        def _line_number(val) -> int | None:
+            try:
+                if val is None or pd.isna(val):
+                    return None
+            except (TypeError, ValueError):
+                pass
+            return int(val)
+
+        params = [
+            (
+                contest_id_map[row["contest_name"]],
+                election_id,
+                _line_number(row.get("line_number")),
+                row["contest_name_raw"],
+                row["contest_name"],
+                election_name,
+                year,
+                row.get("choice_name"),
+                row.get("party"),
+                row.get("total_votes"),
+                row.get("percent_of_votes"),
+                row.get("registered_voters"),
+                row.get("ballots_cast"),
+                row.get("num_precinct_total"),
+                row.get("num_precinct_rptg"),
+                row.get("over_votes"),
+                row.get("under_votes"),
             )
+            for row in df.to_dict("records")
+        ]
+
+        self._conn.executemany(
+            """
+            INSERT INTO candidates
+                (contest_id, election_id, line_number, contest_name_raw,
+                 contest_name, election_name, year,
+                 choice_name, party, total_votes, percent_of_votes,
+                 registered_voters, ballots_cast,
+                 num_precinct_total, num_precinct_rptg, over_votes, under_votes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            params,
+        )
 
     def _upsert_contest(self, contest_name: str, rows: pd.DataFrame) -> None:
         """Insert a contest into the contests table if it doesn't already exist.
@@ -584,7 +600,6 @@ class ElectionDatabase:
         return Election(
             id=row["id"],
             name=row["name"],
-            key=row["key"],
             year=row["year"],
             election_date=date.fromisoformat(row["election_date"])
             if row["election_date"]
