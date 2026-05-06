@@ -165,11 +165,15 @@ class ElectionAnalyzer:
         Args:
             election_a:      The baseline election (name, id, or Election).
             election_b:      The comparison election (name, id, or Election).
+                             Must be a different election from election_a.
             parties:         Parties to include. Default: DEM and REP.
             comparable_only: If True (default), include only contests where
                              both parties have votes in both elections.
                              If False, include all contests present in either
                              election, with NaN where data is missing.
+
+        Raises:
+            ValueError: if election_a and election_b resolve to the same election.
 
         Returns:
             DataFrame with columns:
@@ -181,6 +185,11 @@ class ElectionAnalyzer:
         a, b = _resolve_elections(self._db, [election_a, election_b])
         if a.id is None or b.id is None:
             raise RuntimeError("Resolved election has no id")
+        if a.id == b.id:
+            raise ValueError(
+                f"election_a and election_b must be different elections; "
+                f"both resolved to {a.name!r} (id={a.id})."
+            )
         election_ids_ab: list[int] = [a.id, b.id]
         totals = self._get_party_totals(election_ids_ab, parties)
 
@@ -242,12 +251,17 @@ class ElectionAnalyzer:
         Accepts any number of elections (2+).
 
         Args:
-            *elections:      Election names, ids, or Election objects.
+            *elections:      Election names, ids, or Election objects. Must be
+                             2 or more distinct elections (no duplicates).
             parties:         Parties to include. Default: DEM and REP.
             comparable_only: If True (default), include only contests where
                              both parties have votes in all elections.
                              If False, include all contests present in any
                              election, with NaN where data is missing.
+
+        Raises:
+            ValueError: if fewer than 2 elections are provided, or if any
+                        election appears more than once.
 
         Returns:
             DataFrame with columns:
@@ -263,6 +277,15 @@ class ElectionAnalyzer:
 
         resolved = _resolve_elections(self._db, list(elections))
         election_ids: list[int] = [e.id for e in resolved if e.id is not None]
+
+        seen: set[int] = set()
+        for e in resolved:
+            if e.id in seen:
+                raise ValueError(
+                    f"Duplicate election in party_share arguments: {e.name!r} "
+                    f"(id={e.id}) appears more than once."
+                )
+            seen.add(e.id)
 
         totals = self._get_party_totals(election_ids, parties)
 

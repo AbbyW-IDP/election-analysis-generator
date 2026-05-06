@@ -314,6 +314,33 @@ class TestPctChangeByParty:
         )
         assert list(result_default["contest"]) == list(result_explicit["contest"])
 
+    def test_raises_when_same_election_passed_twice_by_name(self, analyzer):
+        with pytest.raises(ValueError, match="different elections"):
+            analyzer.pct_change_by_party(
+                "2022 General Primary", "2022 General Primary"
+            )
+
+    def test_raises_when_same_election_passed_by_name_and_id(
+        self, analyzer, db_with_two_elections
+    ):
+        """Passing the same election as a name and as its integer id must also be caught."""
+        e = db_with_two_elections.get_election_by_name("2022 General Primary")
+        with pytest.raises(ValueError, match="different elections"):
+            analyzer.pct_change_by_party("2022 General Primary", e.id)
+
+    def test_raises_when_same_election_passed_twice_by_id(
+        self, analyzer, db_with_two_elections
+    ):
+        e = db_with_two_elections.get_election_by_name("2022 General Primary")
+        with pytest.raises(ValueError, match="different elections"):
+            analyzer.pct_change_by_party(e.id, e.id)
+
+    def test_error_message_includes_election_name(self, analyzer):
+        with pytest.raises(ValueError, match="2022 General Primary"):
+            analyzer.pct_change_by_party(
+                "2022 General Primary", "2022 General Primary"
+            )
+
 
 # ---------------------------------------------------------------------------
 # party_share
@@ -567,6 +594,39 @@ class TestPartyShare:
         row = result[result["contest"] == "FOR COUNTY CLERK"].iloc[0]
         # REP missing in 2026 → pp change is NaN
         assert pd.isna(row["REP pp change"])
+
+    def test_raises_when_same_election_passed_twice_by_name(self, analyzer):
+        with pytest.raises(ValueError, match="more than once"):
+            analyzer.party_share(
+                "2022 General Primary", "2022 General Primary"
+            )
+
+    def test_raises_when_duplicate_appears_among_many_elections(
+        self, db_with_four_elections
+    ):
+        """Duplicate anywhere in a longer list is caught, not just adjacent pairs."""
+        analyzer = ElectionAnalyzer(db_with_four_elections)
+        with pytest.raises(ValueError, match="more than once"):
+            analyzer.party_share(
+                "2014 General Primary",
+                "2018 General Primary",
+                "2022 General Primary",
+                "2018 General Primary",  # duplicate
+            )
+
+    def test_raises_when_same_election_passed_by_name_and_id(
+        self, analyzer, db_with_two_elections
+    ):
+        """Passing the same election as a name and as its integer id must also be caught."""
+        e = db_with_two_elections.get_election_by_name("2022 General Primary")
+        with pytest.raises(ValueError, match="more than once"):
+            analyzer.party_share("2022 General Primary", "2026 General Primary", e.id)
+
+    def test_error_message_includes_election_name(self, analyzer):
+        with pytest.raises(ValueError, match="2022 General Primary"):
+            analyzer.party_share(
+                "2022 General Primary", "2022 General Primary"
+            )
 
 
 # ---------------------------------------------------------------------------

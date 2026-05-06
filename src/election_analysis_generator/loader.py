@@ -142,20 +142,6 @@ def _validate_csv_columns(df: pd.DataFrame, path: Path) -> pd.DataFrame:
     return df
 
 
-def _year_from_filename(filename: str) -> int | None:
-    """Extract the election year from a filename.
-
-    Tries the start of the stem first (handles date-suffixed names like
-    2022-general-primary-2022-07-19.csv), then falls back to first 20xx match.
-    """
-    stem = Path(filename).stem
-    match = re.match(r"(20\d{2})", stem)
-    if match:
-        return int(match.group(1))
-    match = re.search(r"(20\d{2})", stem)
-    return int(match.group(1)) if match else None
-
-
 _T = TypeVar("_T")
 
 def _coerce_config_value(value: object, coerce_fn, nullable: bool) -> _T | None:
