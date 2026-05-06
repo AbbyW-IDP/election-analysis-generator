@@ -82,7 +82,9 @@ class TestLoadSummaryInterface:
         )
         loader = LoadSummary(db)
         election, _ = loader.load_csv(csv, {"name": "2026 General Primary",
-                                             "source_file": csv.name})
+                                             "year": 2026,
+                                             "election_date": "2026-03-17",
+                                             "summary_file": csv.name})
         assert election.id is not None
         count = db.query("SELECT COUNT(*) AS n FROM candidates").iloc[0]["n"]
         assert count == 1
@@ -95,7 +97,9 @@ class TestLoadSummaryInterface:
         )
         loader = LoadSummary(db)
         loader.load_csv(csv, {"name": "2026 General Primary",
-                               "source_file": csv.name})
+                               "year": 2026,
+                               "election_date": "2026-03-17",
+                               "summary_file": csv.name})
         assert db.is_file_loaded(csv.name)
 
 
@@ -342,8 +346,8 @@ class TestLoadPrecinctDetailParsing:
         # Write elections.csv referencing the detail file
         config = tmp_path / "elections.csv"
         config.write_text(
-            "name,summary_file,detail_file\n"
-            f"2026 General Primary,2026-general-primary.csv,{path.name}\n"
+            "year,election_date,summary_file,detail_file\n"
+            f"2026,2026-03-17,2026-general-primary.csv,{path.name}\n"
         )
 
         loader = LoadPrecinctDetail(db)

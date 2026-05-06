@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from src.election_analysis_generator.db import ElectionDatabase, DEFAULT_DB_PATH
+from src.election_analysis_generator.db import ElectionDatabase, DEFAULT_DB_PATH, _make_election_key
 from src.election_analysis_generator.models import Election
 from tests.conftest import make_candidates_df, seed_election
 
@@ -639,3 +639,36 @@ class TestInsertPrecinctResults:
             params=[election.id],
         )
         assert mismatch.empty
+
+
+class TestMakeElectionKey:
+    @pytest.mark.parametrize("year, category, election_type, expected", [
+        pytest.param(2026, "General Primary", "midterm",     "2026 General Primary midterm", id="all_three_parts"),
+        pytest.param(2024, "General",         "presidential","2024 General presidential",    id="presidential"),
+        pytest.param(2026, "",                "midterm",     "2026 midterm",                 id="empty_category_omitted"),
+        pytest.param(2026, "General Primary", "",            "2026 General Primary",         id="empty_election_type_omitted"),
+        pytest.param(2026, "",                "",            "2026",                         id="both_optional_parts_empty"),
+        pytest.param(2023, "Consolidated",    "",            "2023 Consolidated",            id="consolidated_category"),
+    ])
+    def test_key_format(self, year, category, election_type, expected):
+        assert _make_election_key(year, category, election_type) == expected
+
+    def test_different_years_produce_different_keys(self):
+        assert _make_election_key(2022, "General Primary", "midterm") != \
+               _make_election_key(2026, "General Primary", "midterm")
+
+    def test_different_categories_produce_different_keys(self):
+        assert _make_election_key(2026, "General Primary", "midterm") != \
+               _make_election_key(2026, "General", "midterm")
+
+    def test_different_election_types_produce_different_keys(self):
+        assert _make_election_key(2026, "General Primary", "midterm") != \
+               _make_election_key(2026, "General Primary", "presidential")
+
+    def test_no_double_spaces_when_parts_present(self):
+        assert "  " not in _make_election_key(2026, "General Primary", "midterm")
+
+    def test_year_is_int_not_string(self):
+        key = _make_election_key(2018, "General Primary", "midterm")
+        assert key.startswith("2018")
+        assert isinstance(key, str)

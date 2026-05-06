@@ -28,6 +28,7 @@ from __future__ import annotations
 import re
 from datetime import date, datetime
 from pathlib import Path
+from typing import TypeVar
 
 import pandas as pd
 
@@ -41,7 +42,7 @@ DEFAULT_CONFIG_PATH = Path("elections.csv")
 VALID_CATEGORIES = frozenset(
     {"Consolidated", "Consolidated Primary", "General", "General Primary"}
 )
-VALID_ELECTION_TYPES = frozenset({"presidential", "midterm"})
+VALID_ELECTION_TYPES = frozenset({"presidential", "midterm", "off-year"})
 
 # Required columns in the results CSV (post-normalisation names).
 REQUIRED_CSV_COLUMNS = frozenset({"contest_name_raw", "party", "total_votes"})
@@ -68,14 +69,12 @@ _NO_CANDIDATE_MARKERS = frozenset(
 # ---------------------------------------------------------------------------
 # elections.csv column names
 # ---------------------------------------------------------------------------
-# Required columns in elections.csv
-_CONFIG_REQUIRED = frozenset({"name", "summary_file"})
+# Required columns in elections.csv.
+_CONFIG_REQUIRED = frozenset({"year", "election_date", "summary_file"})
 
 # Optional columns and their types. Values are (coerce_fn, nullable).
 # Absent columns and blank cells both produce None.
 _CONFIG_OPTIONAL: dict[str, tuple] = {
-    "year":                 (int,   True),
-    "election_date":        (str,   True),   # kept as ISO string; parsed later
     "results_last_updated": (str,   True),
     "category":             (str,   True),
     "election_type":        (str,   True),
@@ -157,7 +156,9 @@ def _year_from_filename(filename: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def _coerce_config_value(value: object, coerce_fn, nullable: bool) -> object:
+_T = TypeVar("_T")
+
+def _coerce_config_value(value: object, coerce_fn, nullable: bool) -> _T | None:
     """Coerce a single config cell value to the target type.
 
     Blank strings and pandas NA/NaN become None for nullable fields.
@@ -185,33 +186,55 @@ def _validate_config_entry(entry: dict, row_index: int) -> None:
     category = entry.get("category")
     election_type = entry.get("election_type")
 
-    if category is not None and category not in VALID_CATEGORIES:
+    if category is not None and category.title() not in VALID_CATEGORIES:
         raise ValueError(
             f"Row {row_index}: invalid category {category!r}. "
             f"Must be one of: {sorted(VALID_CATEGORIES)}"
         )
-    if election_type is not None and election_type not in VALID_ELECTION_TYPES:
+    if election_type is not None and election_type.lower() not in VALID_ELECTION_TYPES:
         raise ValueError(
             f"Row {row_index}: invalid election_type {election_type!r}. "
             f"Must be one of: {sorted(VALID_ELECTION_TYPES)}"
         )
 
 
+def _derive_election_name(year: int, category: str | None) -> str:
+    """Derive a display name from year and category.
+
+    Examples:
+        year=2026, category="General Primary" -> "2026 General Primary"
+        year=2022, category=None              -> "2022"
+
+    Args:
+        year:          The four-digit election year.
+        category:      Optional category string (e.g. "General Primary").
+
+    Returns:
+        A non-empty display name string.
+    """
+    parts = [str(year)]
+    if category:
+        parts.append(category)
+    return " ".join(parts)
+
+
 def load_elections_config(config_path: Path = DEFAULT_CONFIG_PATH) -> list[dict]:
     """Read elections.csv and return a list of election config dicts.
 
-    The CSV must have at minimum the columns ``name`` and ``summary_file``.
-    All other columns are optional; blank cells produce ``None``.
+    The CSV must have at minimum the columns ``year``, ``election_date``, and
+    ``summary_file``. All other columns are optional; blank cells produce
+    ``None``. The election ``name`` is derived from year and category -- it
+    is not read from the CSV.
 
     Integer columns (``year``, ``registered_voters``, ``ballots_cast``) are
     coerced from strings. Date columns (``election_date``,
     ``results_last_updated``) are kept as ISO 8601 strings and parsed later
-    by the loader, matching the behaviour of the former TOML-based config.
+    by the loader.
 
     Raises:
         ValueError  if any row has an invalid ``category`` or
                     ``election_type``, or if a required column is missing
-                    from the file entirely.
+                    from the file entirely, or if year/election_date are blank.
     """
     if not config_path.exists():
         return []
@@ -230,9 +253,23 @@ def load_elections_config(config_path: Path = DEFAULT_CONFIG_PATH) -> list[dict]
 
     entries = []
     for row_index, row in df.iterrows():
+        year_raw = row.get("year", "")
+        year_val = _coerce_config_value(year_raw, int, False)
+        if year_val is None:
+            raise ValueError(
+                f"Row {int(row_index) + 1}: 'year' is required and must be a valid integer."  # type: ignore[arg-type]
+            )
+
+        election_date_raw = str(row.get("election_date", "")).strip()
+        if not election_date_raw:
+            raise ValueError(
+                f"Row {int(row_index) + 1}: 'election_date' is required and must not be blank."  # type: ignore[arg-type]
+            )
+
         entry: dict = {
-            "name": str(row["name"]).strip(),
-            "summary_file": str(row["summary_file"]).strip(),
+            "year":          year_val,
+            "election_date": election_date_raw,
+            "summary_file":  str(row["summary_file"]).strip(),
         }
 
         for col, (coerce_fn, nullable) in _CONFIG_OPTIONAL.items():
@@ -240,6 +277,9 @@ def load_elections_config(config_path: Path = DEFAULT_CONFIG_PATH) -> list[dict]
             entry[col] = _coerce_config_value(raw, coerce_fn, nullable)
 
         _validate_config_entry(entry, int(row_index) + 1)  # type: ignore[arg-type]
+
+        entry["name"] = _derive_election_name(year_val, entry.get("category"))
+
         entries.append(entry)
 
     return entries
@@ -328,8 +368,10 @@ class LoadSummary(_LoaderBase):
 
         Args:
             path:   Path to the CSV file.
-            config: Dict from elections.csv with at minimum 'name' and
-                    'summary_file'.
+            config: Dict produced by load_elections_config(). Must contain
+                    'year', 'election_date', 'summary_file', and 'name'
+                    (the derived display name). Year and election_date are
+                    required in elections.csv -- no filename inference.
 
         Returns:
             (Election, new_unrecognized_contest_names)
@@ -341,12 +383,7 @@ class LoadSummary(_LoaderBase):
         df = _normalize_csv_columns(df)
         df = _validate_csv_columns(df, path)
 
-        year = config.get("year") or _year_from_filename(path.name)
-        if year is None:
-            raise ValueError(
-                f"Could not determine year for {path.name}. "
-                "Add a 'year' column to elections.csv."
-            )
+        year: int = config["year"]  # required -- load_elections_config enforces this
 
         election = Election(
             id=None,

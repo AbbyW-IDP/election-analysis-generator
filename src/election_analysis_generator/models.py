@@ -6,7 +6,7 @@ Dataclasses representing core domain objects.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 
 
@@ -24,6 +24,7 @@ class Election:
     results_last_updated: date | None = None
     ballots_cast: int | None = None
     registered_voters: int | None = None
+    key: str | None = field(default=None)
 
 
 @dataclass
