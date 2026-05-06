@@ -198,7 +198,7 @@ def _validate_config_entry(entry: dict, row_index: int) -> None:
         )
 
 
-def _derive_election_name(year: int, category: str | None, election_type: str | None) -> str:
+def _derive_election_name(year: int, category: str | None) -> str:
     """Derive a display name from year and category.
 
     Examples:
@@ -208,7 +208,6 @@ def _derive_election_name(year: int, category: str | None, election_type: str | 
     Args:
         year:          The four-digit election year.
         category:      Optional category string (e.g. "General Primary").
-        election_type: Unused in name; present for symmetry with make_key.
 
     Returns:
         A non-empty display name string.
@@ -279,10 +278,7 @@ def load_elections_config(config_path: Path = DEFAULT_CONFIG_PATH) -> list[dict]
 
         _validate_config_entry(entry, int(row_index) + 1)  # type: ignore[arg-type]
 
-        # Derive display name from metadata -- never read from CSV
-        entry["name"] = _derive_election_name(
-            year_val, entry.get("category"), entry.get("election_type")
-        )
+        entry["name"] = _derive_election_name(year_val, entry.get("category"))
 
         entries.append(entry)
 

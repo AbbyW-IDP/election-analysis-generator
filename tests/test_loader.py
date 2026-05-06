@@ -96,19 +96,16 @@ class TestParseDate:
 
 class TestDeriveElectionName:
     def test_year_and_category(self):
-        assert _derive_election_name(2026, "General Primary", "midterm") == "2026 General Primary"
+        assert _derive_election_name(2026, "General Primary") == "2026 General Primary"
 
     def test_year_only_when_no_category(self):
-        assert _derive_election_name(2022, None, None) == "2022"
+        assert _derive_election_name(2022, None) == "2022"
 
     def test_year_only_when_empty_category(self):
-        assert _derive_election_name(2022, "", "midterm") == "2022"
-
-    def test_category_without_election_type(self):
-        assert _derive_election_name(2018, "General Primary", None) == "2018 General Primary"
+        assert _derive_election_name(2022, "") == "2022"
 
     def test_different_category(self):
-        assert _derive_election_name(2024, "General", "presidential") == "2024 General"
+        assert _derive_election_name(2024, "General") == "2024 General"
 
 
 # ---------------------------------------------------------------------------
