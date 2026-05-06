@@ -413,7 +413,7 @@ class ElectionDatabase:
             return {}
         placeholders = _placeholders(len(contest_names))
         rows = self._conn.execute(
-            f"SELECT contest_name, id FROM contests WHERE contest_name IN ({placeholders})",
+            f"SELECT contest_name, id FROM contests WHERE contest_name IN ({placeholders})",  # nosec B608 - placeholders only, values passed as parameter
             contest_names,
         ).fetchall()
         result = {r["contest_name"]: r["id"] for r in rows}

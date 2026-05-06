@@ -766,7 +766,6 @@ class TestInsertCandidatesRefactor:
         assert val is None
 
     def test_nan_line_number_stored_as_null(self, db, sample_election):
-        import math
         df = make_candidates_df([{
             "contest_name_raw": "FOR SENATOR (Vote For 1)",
             "line_number": float("nan"),
