@@ -28,6 +28,7 @@ from __future__ import annotations
 import re
 from datetime import date, datetime
 from pathlib import Path
+from typing import TypeVar
 
 import pandas as pd
 
@@ -69,7 +70,6 @@ _NO_CANDIDATE_MARKERS = frozenset(
 # elections.csv column names
 # ---------------------------------------------------------------------------
 # Required columns in elections.csv.
-# year and election_date must be present in the CSV -- no inference from filenames.
 _CONFIG_REQUIRED = frozenset({"year", "election_date", "summary_file"})
 
 # Optional columns and their types. Values are (coerce_fn, nullable).
@@ -156,7 +156,9 @@ def _year_from_filename(filename: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def _coerce_config_value(value: object, coerce_fn, nullable: bool) -> object:
+_T = TypeVar("_T")
+
+def _coerce_config_value(value: object, coerce_fn, nullable: bool) -> _T | None:
     """Coerce a single config cell value to the target type.
 
     Blank strings and pandas NA/NaN become None for nullable fields.
