@@ -1,12 +1,12 @@
 """
 election_analysis_generator/cli.py
------------------------
+-----------------------------------
 Command-line entry points for the election_analysis package.
 
 Each function is registered as a [project.scripts] entry point in
 pyproject.toml, so after `uv sync` you can run:
 
-    sync-sources       Load any new elections defined in elections.toml
+    sync-sources       Load any new elections defined in elections.csv
     generate-analysis  Write election_analysis.xlsx
     export-flags       Write flags_review.xlsx for spreadsheet review
     import-flags       Apply a reviewed flags_review.xlsx to the DB
@@ -35,19 +35,13 @@ from .flags import (
 )
 
 
-# ---------------------------------------------------------------------------
-# sync-sources
-# ---------------------------------------------------------------------------
-
-
 def sync_sources() -> None:
-    """Load any elections defined in elections.toml whose CSV hasn't been loaded yet."""
+    """Load any elections defined in elections.csv whose CSV hasn't been loaded yet."""
     sources_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_SOURCES_DIR
     config_path = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_CONFIG_PATH
 
     with ElectionDatabase(DEFAULT_DB_PATH) as db:
-        loader = LoadSummary (db)
-
+        loader = LoadSummary(db)
         print(f"Scanning {config_path} for new elections...")
         results = loader.sync(sources_dir=sources_dir, config_path=config_path)
 
@@ -70,49 +64,33 @@ def sync_sources() -> None:
 
 
 def load_detail() -> None:
-    """Load precinct-detail Excel for any elections defined in elections.toml."""
+    """Load precinct-detail Excel for any elections defined in elections.csv."""
     sources_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_SOURCES_DIR
     config_path = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_CONFIG_PATH
- 
+
     with ElectionDatabase(DEFAULT_DB_PATH) as db:
         loader = LoadPrecinctDetail(db)
         print(f"Scanning {config_path} for new detail files...")
         results = loader.sync(sources_dir=sources_dir, config_path=config_path)
- 
+
     if not results:
         print("No new detail files found.")
         return
- 
+
     for filename, (election, rows_inserted) in results.items():
         print(f"  {election.name} ({filename}): {rows_inserted} rows inserted")
 
-
-
-# ---------------------------------------------------------------------------
-# generate-analysis
-# ---------------------------------------------------------------------------
 
 DEFAULT_OUTPUT = Path("election_analysis.xlsx")
 
 
 def generate_analysis() -> None:
-    """
-    Run reports defined in reports.toml (or a custom path passed as the first
-    argument) and write the results to Excel.
-
-    Usage:
-        uv run generate-analysis                   # uses reports.toml
-        uv run generate-analysis my_reports.toml   # custom config
-
-    If no reports.toml is found, falls back to a default run: turnout for all
-    elections, pct_change_by_party and party_share for the two most recent.
-    """
+    """Run reports defined in reports.toml and write the results to Excel."""
     from .analysis import ElectionAnalyzer
 
     reports_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_REPORTS_PATH
 
     with ElectionDatabase(DEFAULT_DB_PATH) as db:
-        # Config-driven path
         if reports_path.exists():
             try:
                 reports = load_reports_config(reports_path)
@@ -130,7 +108,6 @@ def generate_analysis() -> None:
                 print(f"  {p}")
             return
 
-        # Fallback: default hardcoded run (no reports.toml present)
         print(f"No reports config found at {reports_path}. Running default analysis...")
         analyzer = ElectionAnalyzer(db)
 
@@ -165,11 +142,6 @@ def generate_analysis() -> None:
     print("Done.")
 
 
-# ---------------------------------------------------------------------------
-# export-flags
-# ---------------------------------------------------------------------------
-
-
 def export_flags_cmd() -> None:
     """Write unresolved flags to flags_review.xlsx for spreadsheet review."""
     output_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_EXPORT_PATH
@@ -186,15 +158,8 @@ def export_flags_cmd() -> None:
     print("Next steps:")
     print("  1. Open the workbook and review the 'flags' tab")
     print("  2. Set Status to: accepted, mapped, or ignored")
-    print(
-        "     For 'mapped', fill in 'Override Target' with a name from 'known_contests'"
-    )
+    print("     For 'mapped', fill in 'Override Target' with a name from 'known_contests'")
     print("  3. Run: import-flags")
-
-
-# ---------------------------------------------------------------------------
-# import-flags
-# ---------------------------------------------------------------------------
 
 
 def import_flags_cmd() -> None:
@@ -221,14 +186,7 @@ def import_flags_cmd() -> None:
 
     remaining = counts["skipped"] + counts["errors"]
     if remaining:
-        print(
-            f"\n{remaining} flag(s) still unresolved. Re-export and review to continue."
-        )
-
-
-# ---------------------------------------------------------------------------
-# review-flags
-# ---------------------------------------------------------------------------
+        print(f"\n{remaining} flag(s) still unresolved. Re-export and review to continue.")
 
 
 def review_flags_cmd() -> None:

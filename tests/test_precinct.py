@@ -332,23 +332,28 @@ class TestLoadPrecinctDetailParsing:
         rows = _standard_sheet_rows()
         path = _make_minimal_workbook(sources, rows, sheet_name="2")
 
-        # Write a minimal elections.toml referencing the detail file
-        toml = tmp_path / "elections.toml"
-        toml.write_text(
-            '[elections.gp]\n'
-            'name = "2026 General Primary"\n'
-            'source_file = "2026-general-primary.csv"\n'
-            f'detail_file = "{path.name}"\n'
+        # Seed the election into the DB so sync() can find it by name
+        seed_election(
+            db, "2026 General Primary", 2026,
+            [{"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM",
+            "total_votes": 80}],
+        )
+
+        # Write elections.csv referencing the detail file
+        config = tmp_path / "elections.csv"
+        config.write_text(
+            "name,summary_file,detail_file\n"
+            f"2026 General Primary,2026-general-primary.csv,{path.name}\n"
         )
 
         loader = LoadPrecinctDetail(db)
         # First sync — loads
-        loader.sync(sources_dir=sources, config_path=toml)
+        loader.sync(sources_dir=sources, config_path=config)
         count_after_first = db.query(
             "SELECT COUNT(*) AS n FROM candidate_precinct_results"
         ).iloc[0]["n"]
         # Second sync — skips
-        loader.sync(sources_dir=sources, config_path=toml)
+        loader.sync(sources_dir=sources, config_path=config)
         count_after_second = db.query(
             "SELECT COUNT(*) AS n FROM candidate_precinct_results"
         ).iloc[0]["n"]
