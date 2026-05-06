@@ -84,7 +84,7 @@ If any contest names in the new file don't match the registry, they are flagged 
 
 All elections are defined in `elections.csv`. Each row is one election. Open the file in any spreadsheet application for a visual overview of what elections and source files are registered.
 
-```
+```text
 name,year,election_date,results_last_updated,category,election_type,summary_file,detail_file,registered_voters,ballots_cast
 2026 General Primary,2026,2026-04-07,2026-04-07,General Primary,midterm,2026-general-primary-2026-04-07.csv,2026-general-primary-precinct-2026-04-07.xlsx,636822,161738
 ```
