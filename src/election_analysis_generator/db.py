@@ -43,6 +43,7 @@ _SCHEMA = """
     CREATE TABLE IF NOT EXISTS elections (
         id                   INTEGER PRIMARY KEY AUTOINCREMENT,
         name                 TEXT NOT NULL UNIQUE,
+        key                  TEXT NOT NULL,
         year                 INTEGER NOT NULL,
         election_date        TEXT,
         results_last_updated TEXT,
@@ -143,6 +144,30 @@ _SCHEMA = """
 def _placeholders(n: int) -> str:
     """Return a comma-separated string of n '?' placeholders for use in SQL IN clauses."""
     return ",".join("?" * n)
+
+
+def _make_election_key(year: int, category: str, election_type: str) -> str:
+    """Build the election key from year, category, and election_type.
+
+    The key uniquely identifies the type of election event and is used for
+    cross-database lookups where the auto-incremented id is not portable.
+    Format: "<year> <category> <election_type>", e.g. "2026 General Primary midterm".
+    Empty category or election_type parts are omitted.
+
+    Args:
+        year:          Four-digit election year.
+        category:      Election category (e.g. "General Primary"). May be empty.
+        election_type: Election type (e.g. "midterm"). May be empty.
+
+    Returns:
+        A non-empty key string.
+    """
+    parts = [str(year)]
+    if category:
+        parts.append(category)
+    if election_type:
+        parts.append(election_type)
+    return " ".join(parts)
 
 
 class ElectionDatabase:
@@ -263,16 +288,18 @@ class ElectionDatabase:
                 previously in the contest_names registry and were therefore
                 flagged for review. Empty list if all names were recognized.
         """
+        election_key = _make_election_key(election.year, election.category, election.election_type)
         cur = self._conn.execute(
             """
             INSERT INTO elections
-                (name, year, election_date, results_last_updated,
+                (name, key, year, election_date, results_last_updated,
                  summary_file, category, election_type,
                  ballots_cast, registered_voters)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 election.name,
+                election_key,
                 election.year,
                 election.election_date.isoformat() if election.election_date else None,
                 election.results_last_updated.isoformat()
@@ -291,6 +318,7 @@ class ElectionDatabase:
         election = Election(
             id=election_id,
             name=election.name,
+            key=election_key,
             year=election.year,
             election_date=election.election_date,
             results_last_updated=election.results_last_updated,
@@ -556,6 +584,7 @@ class ElectionDatabase:
         return Election(
             id=row["id"],
             name=row["name"],
+            key=row["key"],
             year=row["year"],
             election_date=date.fromisoformat(row["election_date"])
             if row["election_date"]
