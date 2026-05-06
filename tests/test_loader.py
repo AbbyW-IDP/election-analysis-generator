@@ -11,6 +11,7 @@ import pytest
 from src.election_analysis_generator.loader import (
     LoadSummary,
     _normalize_csv_columns,
+    _parse_date,
     _validate_csv_columns,
     _year_from_filename,
     load_elections_config,
@@ -24,28 +25,62 @@ CSV_HEADER = "line number,contest name,choice name,party name,total votes,percen
 def write_csv(
     tmp_path: Path, rows: list[str], filename: str = "2026-general-primary.csv"
 ) -> Path:
+    """Write a results CSV (election source data) to tmp_path."""
     p = tmp_path / filename
     p.write_text(CSV_HEADER + "\n" + "\n".join(rows))
     return p
 
 
-def write_toml(tmp_path: Path, entries: list[dict]) -> Path:
-    p = tmp_path / "elections.toml"
-    lines = []
+def write_config_csv(tmp_path: Path, entries: list[dict]) -> Path:
+    """Write an elections.csv config file to tmp_path."""
+    # Collect all column names across all entries, keeping a stable order
+    all_cols = list(dict.fromkeys(
+        ["name", "summary_file"] +
+        [k for entry in entries for k in entry if k not in ("name", "summary_file")]
+    ))
+
+    lines = [",".join(all_cols)]
     for entry in entries:
-        # Derive a slug for the section key from source_file or name
-        raw_key = entry.get("source_file", entry.get("name", "election"))
-        slug = Path(raw_key).stem.replace(" ", "-").lower()
-        lines.append(f"[elections.{slug}]")
-        for k, v in entry.items():
-            # Write integers without quotes; everything else as a quoted string
-            if isinstance(v, int) or (isinstance(v, str) and v.isdigit()):
-                lines.append(f"{k} = {int(v)}")
-            else:
-                lines.append(f'{k} = "{v}"')
-        lines.append("")
-    p.write_text("\n".join(lines))
+        row = [str(entry.get(col, "")) for col in all_cols]
+        lines.append(",".join(row))
+
+    p = tmp_path / "elections.csv"
+    p.write_text("\n".join(lines) + "\n")
     return p
+
+
+# ---------------------------------------------------------------------------
+# _parse_date
+# ---------------------------------------------------------------------------
+
+
+class TestParseDate:
+    def test_parses_iso_format(self):
+        assert _parse_date("2026-03-17") == date(2026, 3, 17)
+
+    def test_parses_m_d_yyyy_format(self):
+        assert _parse_date("3/18/2014") == date(2014, 3, 18)
+
+    def test_parses_m_d_yyyy_with_double_digit_month_and_day(self):
+        assert _parse_date("11/05/2024") == date(2024, 11, 5)
+
+    def test_parses_iso_format_end_of_year(self):
+        assert _parse_date("2022-12-31") == date(2022, 12, 31)
+
+    def test_parses_m_d_yyyy_single_digit_day(self):
+        assert _parse_date("6/1/2020") == date(2020, 6, 1)
+
+    def test_raises_on_unrecognized_format(self):
+        with pytest.raises(ValueError, match="Unrecognized date format"):
+            _parse_date("18-03-2014")
+
+    def test_raises_on_garbage_input(self):
+        with pytest.raises(ValueError, match="Unrecognized date format"):
+            _parse_date("not-a-date")
+
+    def test_raises_on_empty_string(self):
+        with pytest.raises(ValueError):
+            _parse_date("")
 
 
 # ---------------------------------------------------------------------------
@@ -112,34 +147,130 @@ class TestNormalizeCsvColumns:
 
 class TestLoadElectionsConfig:
     def test_returns_empty_list_when_file_missing(self, tmp_path):
-        result = load_elections_config(tmp_path / "nonexistent.toml")
+        result = load_elections_config(tmp_path / "nonexistent.csv")
         assert result == []
 
     def test_reads_elections(self, tmp_path):
-        toml = write_toml(
+        csv = write_config_csv(
             tmp_path,
-            [
-                {
-                    "name": "2026 General Primary",
-                    "year": "2026",
-                    "source_file": "2026-general-primary.csv",
-                }
-            ],
+            [{"name": "2026 General Primary", "year": "2026",
+              "summary_file": "2026-general-primary.csv"}],
         )
-        result = load_elections_config(toml)
+        result = load_elections_config(csv)
         assert len(result) == 1
         assert result[0]["name"] == "2026 General Primary"
 
     def test_reads_multiple_elections(self, tmp_path):
-        toml = write_toml(
+        csv = write_config_csv(
             tmp_path,
             [
-                {"name": "2022 General Primary", "source_file": "2022.csv"},
-                {"name": "2026 General Primary", "source_file": "2026.csv"},
+                {"name": "2022 General Primary", "summary_file": "2022.csv"},
+                {"name": "2026 General Primary", "summary_file": "2026.csv"},
             ],
         )
-        result = load_elections_config(toml)
+        result = load_elections_config(csv)
         assert len(result) == 2
+
+    def test_coerces_year_to_int(self, tmp_path):
+        csv = write_config_csv(
+            tmp_path,
+            [{"name": "2026 General Primary", "summary_file": "2026.csv", "year": "2026"}],
+        )
+        result = load_elections_config(csv)
+        assert result[0]["year"] == 2026
+        assert isinstance(result[0]["year"], int)
+
+    def test_coerces_registered_voters_to_int(self, tmp_path):
+        csv = write_config_csv(
+            tmp_path,
+            [{"name": "2026 General Primary", "summary_file": "2026.csv",
+              "registered_voters": "636822"}],
+        )
+        result = load_elections_config(csv)
+        assert result[0]["registered_voters"] == 636822
+        assert isinstance(result[0]["registered_voters"], int)
+
+    def test_coerces_ballots_cast_to_int(self, tmp_path):
+        csv = write_config_csv(
+            tmp_path,
+            [{"name": "2026 General Primary", "summary_file": "2026.csv",
+              "ballots_cast": "161738"}],
+        )
+        result = load_elections_config(csv)
+        assert result[0]["ballots_cast"] == 161738
+
+    def test_blank_optional_fields_become_none(self, tmp_path):
+        csv = write_config_csv(
+            tmp_path,
+            [{"name": "2026 General Primary", "summary_file": "2026.csv",
+              "year": "", "ballots_cast": ""}],
+        )
+        result = load_elections_config(csv)
+        assert result[0]["year"] is None
+        assert result[0]["ballots_cast"] is None
+
+    def test_missing_optional_columns_produce_none(self, tmp_path):
+        # A CSV with only required columns — no year, no dates, etc.
+        p = tmp_path / "elections.csv"
+        p.write_text("name,summary_file\n2026 General Primary,2026.csv\n")
+        result = load_elections_config(p)
+        assert result[0]["year"] is None
+        assert result[0]["election_date"] is None
+        assert result[0]["registered_voters"] is None
+
+    def test_raises_when_name_column_missing(self, tmp_path):
+        p = tmp_path / "elections.csv"
+        p.write_text("summary_file\n2026.csv\n")
+        with pytest.raises(ValueError, match="name"):
+            load_elections_config(p)
+
+    def test_raises_when_summary_file_column_missing(self, tmp_path):
+        p = tmp_path / "elections.csv"
+        p.write_text("name\n2026 General Primary\n")
+        with pytest.raises(ValueError, match="summary_file"):
+            load_elections_config(p)
+
+    def test_raises_on_invalid_category(self, tmp_path):
+        csv = write_config_csv(
+            tmp_path,
+            [{"name": "2026 General Primary", "summary_file": "2026.csv",
+              "category": "InvalidCategory"}],
+        )
+        with pytest.raises(ValueError, match="category"):
+            load_elections_config(csv)
+
+    def test_raises_on_invalid_election_type(self, tmp_path):
+        csv = write_config_csv(
+            tmp_path,
+            [{"name": "2026 General Primary", "summary_file": "2026.csv",
+              "election_type": "local"}],
+        )
+        with pytest.raises(ValueError, match="election_type"):
+            load_elections_config(csv)
+
+    def test_detail_file_preserved_as_string(self, tmp_path):
+        csv = write_config_csv(
+            tmp_path,
+            [{"name": "2026 General Primary", "summary_file": "2026.csv",
+              "detail_file": "2026-detail.xlsx"}],
+        )
+        result = load_elections_config(csv)
+        assert result[0]["detail_file"] == "2026-detail.xlsx"
+
+    def test_election_date_preserved_as_string(self, tmp_path):
+        csv = write_config_csv(
+            tmp_path,
+            [{"name": "2026 General Primary", "summary_file": "2026.csv",
+              "election_date": "2026-04-07"}],
+        )
+        result = load_elections_config(csv)
+        assert result[0]["election_date"] == "2026-04-07"
+
+    def test_header_whitespace_is_stripped(self, tmp_path):
+        p = tmp_path / "elections.csv"
+        p.write_text(" name , summary_file \n2026 General Primary,2026.csv\n")
+        result = load_elections_config(p)
+        assert result[0]["name"] == "2026 General Primary"
 
 
 # ---------------------------------------------------------------------------
@@ -149,9 +280,6 @@ class TestLoadElectionsConfig:
 
 class TestValidateCsvColumns:
     def _df(self, **cols):
-        """Build a minimal DataFrame with the given columns."""
-        import pandas as pd
-
         base = {
             "contest_name_raw": ["FOR SENATOR"],
             "party": ["DEM"],
@@ -161,38 +289,26 @@ class TestValidateCsvColumns:
         return pd.DataFrame(base)
 
     def test_passes_when_all_required_present(self, tmp_path):
-        import pandas as pd
-
         df = self._df()
         result = _validate_csv_columns(df, tmp_path / "test.csv")
         assert isinstance(result, pd.DataFrame)
 
     def test_raises_when_contest_name_missing(self, tmp_path):
-        import pandas as pd
-
         df = pd.DataFrame({"party": ["DEM"], "total_votes": [5000.0]})
         with pytest.raises(ValueError, match="contest name"):
             _validate_csv_columns(df, tmp_path / "test.csv")
 
     def test_raises_when_party_missing(self, tmp_path):
-        import pandas as pd
-
-        df = pd.DataFrame(
-            {"contest_name_raw": ["FOR SENATOR"], "total_votes": [5000.0]}
-        )
+        df = pd.DataFrame({"contest_name_raw": ["FOR SENATOR"], "total_votes": [5000.0]})
         with pytest.raises(ValueError, match="party"):
             _validate_csv_columns(df, tmp_path / "test.csv")
 
     def test_raises_when_total_votes_missing(self, tmp_path):
-        import pandas as pd
-
         df = pd.DataFrame({"contest_name_raw": ["FOR SENATOR"], "party": ["DEM"]})
         with pytest.raises(ValueError, match="total votes"):
             _validate_csv_columns(df, tmp_path / "test.csv")
 
     def test_error_names_all_missing_required_columns(self, tmp_path):
-        import pandas as pd
-
         df = pd.DataFrame({"unrelated": [1]})
         with pytest.raises(ValueError) as exc_info:
             _validate_csv_columns(df, tmp_path / "test.csv")
@@ -202,15 +318,11 @@ class TestValidateCsvColumns:
         assert "total votes" in msg
 
     def test_error_includes_filename(self, tmp_path):
-        import pandas as pd
-
         df = pd.DataFrame({"unrelated": [1]})
         with pytest.raises(ValueError, match="myfile.csv"):
             _validate_csv_columns(df, tmp_path / "myfile.csv")
 
     def test_optional_columns_added_as_nan_when_absent(self, tmp_path):
-        import pandas as pd
-
         df = self._df()
         result = _validate_csv_columns(df, tmp_path / "test.csv")
         for col in OPTIONAL_CSV_COLUMNS:
@@ -231,7 +343,6 @@ class TestValidateCsvColumns:
 
 class TestCsvColumnConstants:
     def test_required_columns_are_post_normalisation_names(self):
-        # These are internal names, not raw CSV header names
         assert "contest_name_raw" in REQUIRED_CSV_COLUMNS
         assert "party" in REQUIRED_CSV_COLUMNS
         assert "total_votes" in REQUIRED_CSV_COLUMNS
@@ -249,12 +360,10 @@ class TestLoaderLoadCsv:
     def test_inserts_candidates(self, db, tmp_path):
         path = write_csv(
             tmp_path,
-            [
-                "1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0",
-                "2,FOR SENATOR (Vote For 1),John Doe,R,4000,100.0,50000,10000,10,10,0,0",
-            ],
+            ["1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0",
+             "2,FOR SENATOR (Vote For 1),John Doe,R,4000,100.0,50000,10000,10,10,0,0"],
         )
-        config = {"name": "2026 General Primary", "source_file": path.name}
+        config = {"name": "2026 General Primary", "summary_file": path.name}
         loader = LoadSummary(db)
         election, _ = loader.load_csv(path, config)
         count = db.query("SELECT COUNT(*) AS n FROM candidates").iloc[0]["n"]
@@ -263,11 +372,9 @@ class TestLoaderLoadCsv:
     def test_returns_election_with_id(self, db, tmp_path):
         path = write_csv(
             tmp_path,
-            [
-                "1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0",
-            ],
+            ["1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0"],
         )
-        config = {"name": "2026 General Primary", "source_file": path.name}
+        config = {"name": "2026 General Primary", "summary_file": path.name}
         loader = LoadSummary(db)
         election, _ = loader.load_csv(path, config)
         assert election.id is not None
@@ -276,12 +383,10 @@ class TestLoaderLoadCsv:
     def test_infers_year_from_filename(self, db, tmp_path):
         path = write_csv(
             tmp_path,
-            [
-                "1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0",
-            ],
+            ["1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0"],
             filename="2022-general-primary.csv",
         )
-        config = {"name": "2022 General Primary", "source_file": path.name}
+        config = {"name": "2022 General Primary", "summary_file": path.name}
         loader = LoadSummary(db)
         election, _ = loader.load_csv(path, config)
         assert election.year == 2022
@@ -289,16 +394,10 @@ class TestLoaderLoadCsv:
     def test_uses_year_from_config_when_provided(self, db, tmp_path):
         path = write_csv(
             tmp_path,
-            [
-                "1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0",
-            ],
+            ["1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0"],
             filename="results.csv",
         )
-        config = {
-            "name": "2026 General Primary",
-            "year": 2026,
-            "source_file": path.name,
-        }
+        config = {"name": "2026 General Primary", "year": 2026, "summary_file": path.name}
         loader = LoadSummary(db)
         election, _ = loader.load_csv(path, config)
         assert election.year == 2026
@@ -306,11 +405,9 @@ class TestLoaderLoadCsv:
     def test_registers_source_after_load(self, db, tmp_path):
         path = write_csv(
             tmp_path,
-            [
-                "1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0",
-            ],
+            ["1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0"],
         )
-        config = {"name": "2026 General Primary", "source_file": path.name}
+        config = {"name": "2026 General Primary", "summary_file": path.name}
         loader = LoadSummary(db)
         loader.load_csv(path, config)
         assert db.is_file_loaded(path.name)
@@ -318,34 +415,30 @@ class TestLoaderLoadCsv:
     def test_flags_unrecognized_contest_names(self, db, tmp_path):
         path = write_csv(
             tmp_path,
-            [
-                "1,FOR BRAND NEW CONTEST (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0",
-            ],
+            ["1,FOR BRAND NEW CONTEST (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0"],
         )
-        config = {"name": "2026 General Primary", "source_file": path.name}
+        config = {"name": "2026 General Primary", "summary_file": path.name}
         loader = LoadSummary(db)
         _, new_names = loader.load_csv(path, config)
         assert "FOR BRAND NEW CONTEST" in new_names
 
     def test_raises_when_required_column_missing(self, db, tmp_path):
-        # Write a CSV that has no "party name" column
         p = tmp_path / "2026-general-primary.csv"
         p.write_text(
             "line number,contest name,choice name,total votes\n"
             "1,FOR SENATOR,Jane Smith,5000\n"
         )
-        config = {"name": "2026 General Primary", "source_file": p.name}
+        config = {"name": "2026 General Primary", "summary_file": p.name}
         loader = LoadSummary(db)
         with pytest.raises(ValueError, match="party"):
             loader.load_csv(p, config)
 
     def test_loads_csv_with_only_required_columns(self, db, tmp_path):
-        # A minimal CSV with only the three required columns should load fine
         p = tmp_path / "2026-general-primary.csv"
         p.write_text(
             "contest name,party name,total votes\nFOR SENATOR (Vote For 1),D,5000\n"
         )
-        config = {"name": "2026 General Primary", "source_file": p.name}
+        config = {"name": "2026 General Primary", "summary_file": p.name}
         loader = LoadSummary(db)
         election, _ = loader.load_csv(p, config)
         assert election.id is not None
@@ -353,13 +446,11 @@ class TestLoaderLoadCsv:
     def test_election_date_from_config(self, db, tmp_path):
         path = write_csv(
             tmp_path,
-            [
-                "1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0",
-            ],
+            ["1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0"],
         )
         config = {
             "name": "2026 General Primary",
-            "source_file": path.name,
+            "summary_file": path.name,
             "election_date": "2026-03-17",
         }
         loader = LoadSummary(db)
@@ -369,13 +460,11 @@ class TestLoaderLoadCsv:
     def test_results_last_updated_from_config(self, db, tmp_path):
         path = write_csv(
             tmp_path,
-            [
-                "1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0",
-            ],
+            ["1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0"],
         )
         config = {
             "name": "2026 General Primary",
-            "source_file": path.name,
+            "summary_file": path.name,
             "results_last_updated": "2026-04-21",
         }
         loader = LoadSummary(db)
@@ -385,11 +474,9 @@ class TestLoaderLoadCsv:
     def test_results_last_updated_is_none_when_absent(self, db, tmp_path):
         path = write_csv(
             tmp_path,
-            [
-                "1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0",
-            ],
+            ["1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0"],
         )
-        config = {"name": "2026 General Primary", "source_file": path.name}
+        config = {"name": "2026 General Primary", "summary_file": path.name}
         loader = LoadSummary(db)
         election, _ = loader.load_csv(path, config)
         assert election.results_last_updated is None
@@ -397,19 +484,45 @@ class TestLoaderLoadCsv:
     def test_results_last_updated_roundtrips_through_db(self, db, tmp_path):
         path = write_csv(
             tmp_path,
-            [
-                "1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0",
-            ],
+            ["1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0"],
         )
         config = {
             "name": "2026 General Primary",
-            "source_file": path.name,
+            "summary_file": path.name,
             "results_last_updated": "2026-04-21",
         }
         loader = LoadSummary(db)
         loader.load_csv(path, config)
         retrieved = db.get_election_by_name("2026 General Primary")
         assert retrieved.results_last_updated == date(2026, 4, 21)
+
+    def test_election_date_accepts_m_d_yyyy_format(self, db, tmp_path):
+        path = write_csv(
+            tmp_path,
+            ["1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0"],
+        )
+        config = {
+            "name": "2014 General Primary",
+            "summary_file": path.name,
+            "election_date": "3/18/2014",
+        }
+        loader = LoadSummary(db)
+        election, _ = loader.load_csv(path, config)
+        assert election.election_date == date(2014, 3, 18)
+
+    def test_results_last_updated_accepts_m_d_yyyy_format(self, db, tmp_path):
+        path = write_csv(
+            tmp_path,
+            ["1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0"],
+        )
+        config = {
+            "name": "2026 General Primary",
+            "summary_file": path.name,
+            "results_last_updated": "4/21/2026",
+        }
+        loader = LoadSummary(db)
+        election, _ = loader.load_csv(path, config)
+        assert election.results_last_updated == date(2026, 4, 21)
 
 
 # ---------------------------------------------------------------------------
@@ -423,22 +536,15 @@ class TestLoaderSync:
         sources.mkdir()
         write_csv(
             sources,
-            [
-                "1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0",
-            ],
+            ["1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0"],
             filename="2026-general-primary.csv",
         )
-        toml = write_toml(
+        config = write_config_csv(
             tmp_path,
-            [
-                {
-                    "name": "2026 General Primary",
-                    "source_file": "2026-general-primary.csv",
-                }
-            ],
+            [{"name": "2026 General Primary", "summary_file": "2026-general-primary.csv"}],
         )
         loader = LoadSummary(db)
-        results = loader.sync(sources_dir=sources, config_path=toml)
+        results = loader.sync(sources_dir=sources, config_path=config)
         assert "2026-general-primary.csv" in results
 
     def test_skips_already_loaded_elections(self, db, tmp_path):
@@ -446,23 +552,16 @@ class TestLoaderSync:
         sources.mkdir()
         write_csv(
             sources,
-            [
-                "1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0",
-            ],
+            ["1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0"],
             filename="2026-general-primary.csv",
         )
-        toml = write_toml(
+        config = write_config_csv(
             tmp_path,
-            [
-                {
-                    "name": "2026 General Primary",
-                    "source_file": "2026-general-primary.csv",
-                }
-            ],
+            [{"name": "2026 General Primary", "summary_file": "2026-general-primary.csv"}],
         )
         loader = LoadSummary(db)
-        loader.sync(sources_dir=sources, config_path=toml)
-        results = loader.sync(sources_dir=sources, config_path=toml)
+        loader.sync(sources_dir=sources, config_path=config)
+        results = loader.sync(sources_dir=sources, config_path=config)
         assert "2026-general-primary.csv" not in results
 
     def test_database_entries_persist_after_second_sync(self, db, tmp_path):
@@ -470,50 +569,40 @@ class TestLoaderSync:
         sources.mkdir()
         write_csv(
             sources,
-            [
-                "1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0",
-            ],
+            ["1,FOR SENATOR (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0"],
             filename="2026-general-primary.csv",
         )
-        toml = write_toml(
+        config = write_config_csv(
             tmp_path,
-            [
-                {
-                    "name": "2026 General Primary",
-                    "source_file": "2026-general-primary.csv",
-                }
-            ],
+            [{"name": "2026 General Primary", "summary_file": "2026-general-primary.csv"}],
         )
         loader = LoadSummary(db)
-        loader.sync(sources_dir=sources, config_path=toml)
-        count_after_first = db.query("SELECT COUNT(*) AS n FROM candidates").iloc[0][
-            "n"
-        ]
-        loader.sync(sources_dir=sources, config_path=toml)
-        count_after_second = db.query("SELECT COUNT(*) AS n FROM candidates").iloc[0][
-            "n"
-        ]
+        loader.sync(sources_dir=sources, config_path=config)
+        count_after_first = db.query("SELECT COUNT(*) AS n FROM candidates").iloc[0]["n"]
+        loader.sync(sources_dir=sources, config_path=config)
+        count_after_second = db.query("SELECT COUNT(*) AS n FROM candidates").iloc[0]["n"]
         assert count_after_first == count_after_second
 
     def test_skips_missing_source_files(self, db, tmp_path):
         sources = tmp_path / "sources"
         sources.mkdir()
-        toml = write_toml(
-            tmp_path, [{"name": "2026 General Primary", "source_file": "missing.csv"}]
+        config = write_config_csv(
+            tmp_path,
+            [{"name": "2026 General Primary", "summary_file": "missing.csv"}],
         )
         loader = LoadSummary(db)
-        results = loader.sync(sources_dir=sources, config_path=toml)
+        results = loader.sync(sources_dir=sources, config_path=config)
         assert results == {}
 
     def test_raises_if_sources_dir_missing(self, db, tmp_path):
         loader = LoadSummary(db)
-        toml = write_toml(tmp_path, [])
+        config = write_config_csv(tmp_path, [])
         with pytest.raises(FileNotFoundError):
-            loader.sync(sources_dir=tmp_path / "nonexistent", config_path=toml)
+            loader.sync(sources_dir=tmp_path / "nonexistent", config_path=config)
 
     def test_returns_empty_when_no_config(self, db, tmp_path):
         sources = tmp_path / "sources"
         sources.mkdir()
         loader = LoadSummary(db)
-        results = loader.sync(sources_dir=sources, config_path=tmp_path / "none.toml")
+        results = loader.sync(sources_dir=sources, config_path=tmp_path / "none.csv")
         assert results == {}

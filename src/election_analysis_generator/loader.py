@@ -17,17 +17,16 @@ Both classes are idempotent: the database's loaded_files registry
 tracks which filenames have been processed, so running sync() or
 load_detail_excel() a second time with the same file is a safe no-op.
 
-Elections are configured in elections.toml. Each entry maps a CSV (and
-optionally a detail Excel file) to election metadata. The loader reads
-the toml, checks which sources have not been loaded yet, and loads any new
-ones.
+Elections are configured in elections.csv. Each row maps a summary CSV
+(and optionally a detail Excel file) to election metadata. The loader
+reads the CSV, checks which sources have not been loaded yet, and loads
+any new ones.
 """
 
 from __future__ import annotations
 
 import re
-import tomllib
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -37,14 +36,14 @@ from .models import Election
 from .normalize import normalize_contest_name
 
 DEFAULT_SOURCES_DIR = Path("sources")
-DEFAULT_CONFIG_PATH = Path("elections.toml")
+DEFAULT_CONFIG_PATH = Path("elections.csv")
 
 VALID_CATEGORIES = frozenset(
     {"Consolidated", "Consolidated Primary", "General", "General Primary"}
 )
 VALID_ELECTION_TYPES = frozenset({"presidential", "midterm"})
 
-# Required columns (post-normalisation names).
+# Required columns in the results CSV (post-normalisation names).
 REQUIRED_CSV_COLUMNS = frozenset({"contest_name_raw", "party", "total_votes"})
 
 # All known optional columns. Any absent ones are added as NaN so the rest
@@ -66,14 +65,50 @@ _NO_CANDIDATE_MARKERS = frozenset(
     {"NO CANDIDATE/CANDIDATO", "NO CANDIDATE", "CANDIDATO"}
 )
 
+# ---------------------------------------------------------------------------
+# elections.csv column names
+# ---------------------------------------------------------------------------
+# Required columns in elections.csv
+_CONFIG_REQUIRED = frozenset({"name", "summary_file"})
+
+# Optional columns and their types. Values are (coerce_fn, nullable).
+# Absent columns and blank cells both produce None.
+_CONFIG_OPTIONAL: dict[str, tuple] = {
+    "year":                 (int,   True),
+    "election_date":        (str,   True),   # kept as ISO string; parsed later
+    "results_last_updated": (str,   True),
+    "category":             (str,   True),
+    "election_type":        (str,   True),
+    "registered_voters":    (int,   True),
+    "ballots_cast":         (int,   True),
+    "detail_file":          (str,   True),
+}
+
 
 # ---------------------------------------------------------------------------
 # Module-level helpers (shared between subclasses)
 # ---------------------------------------------------------------------------
 
 
+def _parse_date(value: str) -> date:
+    """Parse a date string in YYYY-MM-DD or M/D/YYYY format into a date object.
+
+    Excel reformats ISO dates to M/D/YYYY when a CSV is opened and re-saved,
+    so both formats are accepted. Raises ValueError with a descriptive message
+    if neither format matches.
+    """
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(value, fmt).date()
+        except ValueError:
+            continue
+    raise ValueError(
+        f"Unrecognized date format: {value!r}. Use YYYY-MM-DD or M/D/YYYY."
+    )
+
+
 def _normalize_csv_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Normalize CSV column names to internal conventions."""
+    """Normalize results CSV column names to internal conventions."""
     df = df.copy()
     df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
     return df.rename(
@@ -85,9 +120,7 @@ def _normalize_csv_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _validate_csv_columns(df: pd.DataFrame, path: Path) -> pd.DataFrame:
-    """
-    Check that all required columns are present and add any missing optional
-    columns as NaN.
+    """Check required columns are present; add missing optional columns as NaN.
 
     Raises ValueError naming every missing required column.
     """
@@ -111,8 +144,8 @@ def _validate_csv_columns(df: pd.DataFrame, path: Path) -> pd.DataFrame:
 
 
 def _year_from_filename(filename: str) -> int | None:
-    """
-    Extract the election year from a filename.
+    """Extract the election year from a filename.
+
     Tries the start of the stem first (handles date-suffixed names like
     2022-general-primary-2022-07-19.csv), then falls back to first 20xx match.
     """
@@ -124,42 +157,91 @@ def _year_from_filename(filename: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def _validate_config_entry(entry: dict, key: str) -> None:
+def _coerce_config_value(value: object, coerce_fn, nullable: bool) -> object:
+    """Coerce a single config cell value to the target type.
+
+    Blank strings and pandas NA/NaN become None for nullable fields.
+    """
+    # Treat pandas NA, float NaN, and empty/whitespace strings as missing
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):  # type: ignore[arg-type]
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, str) and not value.strip():
+        return None
+    if nullable and value is None:
+        return None
+    try:
+        return coerce_fn(value)
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"Cannot coerce {value!r} with {coerce_fn.__name__}: {exc}") from exc
+
+
+def _validate_config_entry(entry: dict, row_index: int) -> None:
     """Raise ValueError if a config entry has invalid category or election_type."""
     category = entry.get("category")
     election_type = entry.get("election_type")
 
     if category is not None and category not in VALID_CATEGORIES:
         raise ValueError(
-            f"[elections.{key}] Invalid category {category!r}. "
+            f"Row {row_index}: invalid category {category!r}. "
             f"Must be one of: {sorted(VALID_CATEGORIES)}"
         )
     if election_type is not None and election_type not in VALID_ELECTION_TYPES:
         raise ValueError(
-            f"[elections.{key}] Invalid election_type {election_type!r}. "
+            f"Row {row_index}: invalid election_type {election_type!r}. "
             f"Must be one of: {sorted(VALID_ELECTION_TYPES)}"
         )
 
 
 def load_elections_config(config_path: Path = DEFAULT_CONFIG_PATH) -> list[dict]:
-    """
-    Read elections.toml and return a list of election config dicts.
+    """Read elections.csv and return a list of election config dicts.
 
-    Each entry must have: name, summary_file.
-    Optional: year, election_date, results_last_updated, category,
-              election_type, ballots_cast, registered_voters, detail_file.
+    The CSV must have at minimum the columns ``name`` and ``summary_file``.
+    All other columns are optional; blank cells produce ``None``.
 
-    Raises ValueError if any entry has an invalid category or election_type.
+    Integer columns (``year``, ``registered_voters``, ``ballots_cast``) are
+    coerced from strings. Date columns (``election_date``,
+    ``results_last_updated``) are kept as ISO 8601 strings and parsed later
+    by the loader, matching the behaviour of the former TOML-based config.
+
+    Raises:
+        ValueError  if any row has an invalid ``category`` or
+                    ``election_type``, or if a required column is missing
+                    from the file entirely.
     """
     if not config_path.exists():
         return []
-    with open(config_path, "rb") as f:
-        raw = tomllib.load(f)
+
+    df = pd.read_csv(config_path, dtype=str).fillna("")
+
+    # Normalise header names: strip whitespace, lowercase, underscores
+    df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
+
+    missing_required = _CONFIG_REQUIRED - set(df.columns)
+    if missing_required:
+        raise ValueError(
+            f"{config_path.name} is missing required column(s): "
+            f"{', '.join(sorted(missing_required))}"
+        )
 
     entries = []
-    for key, cfg in raw.get("elections", {}).items():
-        _validate_config_entry(cfg, key)
-        entries.append(cfg)
+    for row_index, row in df.iterrows():
+        entry: dict = {
+            "name": str(row["name"]).strip(),
+            "summary_file": str(row["summary_file"]).strip(),
+        }
+
+        for col, (coerce_fn, nullable) in _CONFIG_OPTIONAL.items():
+            raw = row.get(col, "")
+            entry[col] = _coerce_config_value(raw, coerce_fn, nullable)
+
+        _validate_config_entry(entry, int(row_index) + 1)  # type: ignore[arg-type]
+        entries.append(entry)
+
     return entries
 
 
@@ -169,12 +251,7 @@ def load_elections_config(config_path: Path = DEFAULT_CONFIG_PATH) -> list[dict]
 
 
 class _LoaderBase:
-    """
-    Shared constructor for all loader classes.
-
-    Both LoadSummary and LoadPrecinctDetail take a single ElectionDatabase
-    argument and store it as self._db.
-    """
+    """Shared constructor for all loader classes."""
 
     def __init__(self, db: ElectionDatabase) -> None:
         self._db = db
@@ -186,10 +263,9 @@ class _LoaderBase:
 
 
 class LoadSummary(_LoaderBase):
-    """
-    Reads county-wide summary CSVs and populates the candidates table.
+    """Reads county-wide summary CSVs and populates the candidates table.
 
-    Call sync() to automatically load any elections defined in elections.toml
+    Call sync() to automatically load any elections defined in elections.csv
     whose CSV hasn't been loaded yet, or call load_csv() directly for a
     single file.
 
@@ -198,7 +274,7 @@ class LoadSummary(_LoaderBase):
         with ElectionDatabase() as db:
             loader = LoadSummary(db)
             loader.sync(sources_dir=Path("sources"),
-                        config_path=Path("elections.toml"))
+                        config_path=Path("elections.csv"))
     """
 
     def sync(
@@ -206,8 +282,7 @@ class LoadSummary(_LoaderBase):
         sources_dir: Path = DEFAULT_SOURCES_DIR,
         config_path: Path = DEFAULT_CONFIG_PATH,
     ) -> dict[str, tuple[Election, list[str]]]:
-        """
-        Scan elections.toml for elections whose summary CSV hasn't been
+        """Scan elections.csv for elections whose summary CSV hasn't been
         loaded yet and load them.
 
         Returns:
@@ -224,12 +299,10 @@ class LoadSummary(_LoaderBase):
 
         results: dict[str, tuple[Election, list[str]]] = {}
         for entry in configs:
-            filename = entry["source_file"]
+            filename = entry["summary_file"]
             if self._db.is_file_loaded(filename):
                 continue
 
-            # Election may already exist under this name. Register the CSV
-            # as a known source so future syncs skip it, but don't re-insert.
             existing = self._db.get_election_by_name(entry["name"])
             if existing is not None:
                 if existing.id is not None:
@@ -251,12 +324,11 @@ class LoadSummary(_LoaderBase):
         path: Path,
         config: dict,
     ) -> tuple[Election, list[str]]:
-        """
-        Load a single election CSV into the database.
+        """Load a single election CSV into the database.
 
         Args:
             path:   Path to the CSV file.
-            config: Dict from elections.toml with at minimum 'name' and
+            config: Dict from elections.csv with at minimum 'name' and
                     'summary_file'.
 
         Returns:
@@ -273,22 +345,22 @@ class LoadSummary(_LoaderBase):
         if year is None:
             raise ValueError(
                 f"Could not determine year for {path.name}. "
-                "Add 'year' to elections.toml."
+                "Add a 'year' column to elections.csv."
             )
 
         election = Election(
             id=None,
             name=config["name"],
             year=year,
-            election_date=date.fromisoformat(config["election_date"])
+            election_date=_parse_date(config["election_date"])
             if config.get("election_date")
             else None,
-            results_last_updated=date.fromisoformat(config["results_last_updated"])
+            results_last_updated=_parse_date(config["results_last_updated"])
             if config.get("results_last_updated")
             else None,
             summary_file=path.name,
-            category=config.get("category", ""),
-            election_type=config.get("election_type", ""),
+            category=config.get("category") or "",
+            election_type=config.get("election_type") or "",
             ballots_cast=config.get("ballots_cast"),
             registered_voters=config.get("registered_voters"),
         )
@@ -307,44 +379,23 @@ class LoadSummary(_LoaderBase):
 
 
 class LoadPrecinctDetail(_LoaderBase):
-    """
-    Reads the precinct-detail Excel workbook and populates
+    """Reads the precinct-detail Excel workbook and populates
     candidate_precinct_results.
-
-    The workbook has one sheet per party per contest. Each sheet contains:
-
-      Row 0  – contest name (e.g. "FOR UNITED STATES SENATOR ( 1)")
-      Row 1  – candidate names, one per block of 5 vote-type columns
-               (Early, Vote by Mail, Polling, Provisional, Total Votes);
-               col 0 is empty, col 1 is Registered Voters.
-               "NO CANDIDATE/CANDIDATO" means the slot is uncontested.
-      Row 2  – column headers: Precinct, Registered Voters,
-               [Early, Vote by Mail, Polling, Provisional, Total Votes] × N,
-               Total
-      Row 3+ – one data row per precinct (last row is "Total:")
-
-    All sheets for an election file are loaded into the same election_id.
-    The detail filename is registered in loaded_files so re-running is safe.
 
     Usage::
 
         with ElectionDatabase() as db:
             loader = LoadPrecinctDetail(db)
             loader.sync(sources_dir=Path("sources"),
-                        config_path=Path("elections.toml"))
+                        config_path=Path("elections.csv"))
     """
-
-    # ---------------------------------------------------------------------------
-    # Public interface
-    # ---------------------------------------------------------------------------
 
     def sync(
         self,
         sources_dir: Path = DEFAULT_SOURCES_DIR,
         config_path: Path = DEFAULT_CONFIG_PATH,
     ) -> dict[str, tuple[Election, int]]:
-        """
-        Scan elections.toml for elections whose detail_file hasn't been
+        """Scan elections.csv for elections whose detail_file hasn't been
         loaded yet and load them.
 
         Returns:
@@ -384,13 +435,8 @@ class LoadPrecinctDetail(_LoaderBase):
 
         return results
 
-    def load_detail_excel(
-        self,
-        path: Path,
-        election: Election,
-    ) -> int:
-        """
-        Parse the detail Excel workbook at *path* and insert precinct-level
+    def load_detail_excel(self, path: Path, election: Election) -> int:
+        """Parse the detail Excel workbook at *path* and insert precinct-level
         results for *election*.
 
         Args:
@@ -400,10 +446,6 @@ class LoadPrecinctDetail(_LoaderBase):
 
         Returns:
             Total number of rows inserted.
-
-        Raises:
-            ValueError  if election.id is None.
-            FileNotFoundError if path does not exist.
         """
         if election.id is None:
             raise ValueError(
@@ -416,31 +458,19 @@ class LoadPrecinctDetail(_LoaderBase):
         import openpyxl
 
         wb = openpyxl.load_workbook(path, read_only=False, data_only=True)
-
-        # Build contest_name → contest_id lookup once for the whole workbook
         contest_id_map = self._build_contest_id_map()
 
         total_inserted = 0
         for sheet_name in wb.sheetnames:
             ws = wb[sheet_name]
             rows = list(ws.iter_rows(values_only=True))
-            inserted = self._process_sheet(
-                rows, election.id, contest_id_map, sheet_name
-            )
+            inserted = self._process_sheet(rows, election.id, contest_id_map, sheet_name)
             total_inserted += inserted
 
         self._db.register_file(path.name, election.id)
         return total_inserted
 
-    # ---------------------------------------------------------------------------
-    # Internal helpers
-    # ---------------------------------------------------------------------------
-
     def _build_contest_id_map(self) -> dict[str, int]:
-        """
-        Return a mapping of normalized_contest_name → contest_id for every
-        contest currently in the database.
-        """
         df = self._db.query("SELECT id, contest_name FROM contests")
         return dict(zip(df["contest_name"], df["id"]))
 
@@ -451,15 +481,9 @@ class LoadPrecinctDetail(_LoaderBase):
         contest_id_map: dict[str, int],
         sheet_name: str,
     ) -> int:
-        """
-        Parse one sheet and insert its precinct rows. Returns the number of
-        rows inserted (0 for skipped/unrecognized sheets).
-        """
-        # Need at least: header row 0, candidate row 1, column row 2, 1 data row
         if len(rows) < 4:
             return 0
 
-        # --- Row 0: contest name ---
         raw_contest = str(rows[0][0] or "").strip()
         if not raw_contest:
             return 0
@@ -467,14 +491,8 @@ class LoadPrecinctDetail(_LoaderBase):
         normalized_contest = normalize_contest_name(raw_contest)
         contest_id = contest_id_map.get(normalized_contest)
         if contest_id is None:
-            # Contest not registered — sheet belongs to an election/category
-            # outside the current database (e.g. a referendum not yet loaded).
             return 0
 
-        # --- Row 1: candidate names ---
-        # Layout: col 0=None, col 1=None, then 5-col blocks per candidate,
-        # last col is "Total".
-        # Candidate names appear at positions 2, 7, 12, … (every 5 columns).
         candidate_names: list[str] = []
         candidate_start_cols: list[int] = []
         candidate_row = rows[1]
@@ -493,14 +511,11 @@ class LoadPrecinctDetail(_LoaderBase):
         if not candidate_names:
             return 0
 
-        # --- Rows 3+: data rows ---
-        # Skip the "Total:" summary row.
         precinct_rows_to_insert: list[dict] = []
         for data_row in rows[3:]:
             precinct_name = str(data_row[0] or "").strip()
             if not precinct_name or precinct_name.lower().startswith("total"):
                 continue
-            # col 1 = registered_voters (may be 0 for FEDERAL precincts)
             registered_voters_raw = data_row[1]
             registered_voters = (
                 int(registered_voters_raw)
@@ -508,10 +523,7 @@ class LoadPrecinctDetail(_LoaderBase):
                 else None
             )
 
-            for i, (choice_name, start_col) in enumerate(
-                zip(candidate_names, candidate_start_cols)
-            ):
-                # Each candidate block: Early, VBM, Polling, Provisional, Total
+            for choice_name, start_col in zip(candidate_names, candidate_start_cols):
                 try:
                     early = _int_or_zero(data_row[start_col])
                     vbm = _int_or_zero(data_row[start_col + 1])
@@ -544,7 +556,6 @@ class LoadPrecinctDetail(_LoaderBase):
 
 
 def _int_or_zero(value) -> int:
-    """Coerce a cell value to int, defaulting to 0 for None or non-numeric."""
     if value is None:
         return 0
     try:

@@ -12,7 +12,7 @@ Current data covers DuPage County, Illinois (2014, 2018, 2022, 2026), sourced fr
 .
 ├── README.md
 ├── pyproject.toml
-├── elections.toml              # Election metadata: names, dates, turnout figures, source files
+├── elections.csv               # Election metadata: names, dates, turnout figures, source files
 ├── elections.db                # SQLite database (generated locally, not committed)
 ├── sources/                    # Drop election source files here to load them
 │   ├── 2022-general-primary-2022-07-19.csv
@@ -54,27 +54,27 @@ uv sync
 
 ### First-time setup
 
-Add your election CSVs to `sources/` and define them in `elections.toml`, then run:
+Add your election CSVs to `sources/` and define them in `elections.csv`, then run:
 
 ```bash
 uv run sync-sources
 ```
 
-This loads all elections defined in `elections.toml` that haven't been loaded yet and creates `elections.db`.
+This loads all elections defined in `elections.csv` that haven't been loaded yet and creates `elections.db`.
 
 ---
 
 ## Adding new elections
 
 1. Place the raw CSV in the `sources/` directory.
-2. Add an entry to `elections.toml` (see [Election config](#election-config) below).
+2. Add a row to `elections.csv` (see [Election config](#election-config) below).
 3. Run:
 
 ```bash
 uv run sync-sources
 ```
 
-`sync-sources` checks `elections.toml` for any elections whose `source_file` hasn't been loaded yet and loads them. Already-loaded elections are skipped. **Database entries are never removed** even if a source file is later deleted.
+`sync-sources` checks `elections.csv` for any elections whose `summary_file` hasn't been loaded yet and loads them. Already-loaded elections are skipped. **Database entries are never removed** even if a source file is later deleted.
 
 If any contest names in the new file don't match the registry, they are flagged for review. See [Reviewing flagged contest names](#reviewing-flagged-contest-names) below.
 
@@ -82,32 +82,27 @@ If any contest names in the new file don't match the registry, they are flagged 
 
 ## Election config
 
-All elections are defined in `elections.toml`. Each entry uses a `[elections.<key>]` section:
+All elections are defined in `elections.csv`. Each row is one election. Open the file in any spreadsheet application for a visual overview of what elections and source files are registered.
 
-```toml
-[elections.2026-general-primary]
-name              = "2026 General Primary"
-year              = 2026
-election_date     = "2026-04-07"
-category          = "General Primary"
-election_type     = "midterm"
-source_file       = "2026-general-primary-2026-04-07.csv"
-detail_file       = "2026-general-primary-detail.xlsx"   # optional
-registered_voters = 636822
-ballots_cast      = 161738
+```
+name,year,election_date,results_last_updated,category,election_type,summary_file,detail_file,registered_voters,ballots_cast
+2026 General Primary,2026,2026-04-07,2026-04-07,General Primary,midterm,2026-general-primary-2026-04-07.csv,2026-general-primary-precinct-2026-04-07.xlsx,636822,161738
 ```
 
-| Field | Required | Description |
+| Column | Required | Description |
 | --- | --- | --- |
 | `name` | Yes | Display name used throughout the codebase |
-| `source_file` | Yes | CSV filename in `sources/` (basename only, no path prefix) |
+| `summary_file` | Yes | CSV filename in `sources/` (basename only, no path prefix) |
 | `detail_file` | No | Excel filename in `sources/` containing precinct-level results |
-| `year` | No | Inferred from filename if omitted |
+| `year` | No | Inferred from filename if blank |
 | `election_date` | No | ISO 8601 date (`YYYY-MM-DD`) |
+| `results_last_updated` | No | ISO 8601 date (`YYYY-MM-DD`) |
 | `category` | No | One of: `Consolidated`, `Consolidated Primary`, `General`, `General Primary` |
 | `election_type` | No | One of: `presidential`, `midterm` |
 | `registered_voters` | No | County-wide registered voter count |
 | `ballots_cast` | No | County-wide ballots cast; if absent, derived as the max across all contest rows in the CSV |
+
+Leave optional cells blank — the loader treats empty cells as absent. Integer columns (`year`, `registered_voters`, `ballots_cast`) are coerced from strings automatically.
 
 ---
 
@@ -213,7 +208,7 @@ When a flag is marked `mapped`, an entry is added to `contest_name_overrides` li
 
 **`db.py` — `ElectionDatabase`** owns all database state: the SQLite connection, schema, contest name registry, flags, overrides, and source file registry. All other classes go through this interface.
 
-**`loader.py` — `LoadSummary` and `LoadPrecinctDetail`** read `elections.toml` and source files, then load them into an `ElectionDatabase`. `sync()` loads only elections not already registered. Handles both CSV sources and the historical Excel workbook.
+**`loader.py` — `LoadSummary` and `LoadPrecinctDetail`** read `elections.csv` and source files, then load them into an `ElectionDatabase`. `sync()` loads only elections not already registered. Handles both CSV sources and the historical Excel workbook.
 
 **`analysis.py` — `ElectionAnalyzer`** reads from an `ElectionDatabase` and produces analysis DataFrames. Elections can be specified by name, database id, or `Election` object. Methods: `list_elections()`, `pct_change_by_party()`, `party_share()`, `turnout()`.
 
@@ -236,7 +231,7 @@ When a flag is marked `mapped`, an entry is added to `contest_name_overrides` li
 | `year` | Election year |
 | `election_date` | Date of the election |
 | `results_last_updated` | Date results were last updated |
-| `source_file` | Unique key for the source this election was loaded from |
+| `summary_file` | Unique key for the source this election was loaded from |
 | `category` | Election category (`General Primary`, etc.) |
 | `election_type` | `presidential` or `midterm` |
 | `registered_voters` | County-wide registered voter count |
@@ -267,7 +262,7 @@ When a flag is marked `mapped`, an entry is added to `contest_name_overrides` li
 
 **`contest_name_overrides`** — manual mappings: raw name → canonical normalized name
 
-**`loaded_sources`** — registry of source keys that have been loaded (prevents re-loading)
+**`loaded_files`** — registry of source keys that have been loaded (prevents re-loading)
 
 **`candidate_precinct_results`** — precinct-level vote breakdown from detail Excel files
 
@@ -303,4 +298,4 @@ uv run pytest
 - Results cover DuPage County primary elections only
 - Only DEM and REP contests are used in partisan comparisons; other parties are stored but excluded from analysis
 - 2026 results are official as of April 7, 2026
-- `category` and `election_type` are defined in `elections.toml` and stored on the `elections` table; valid values are enforced at load time
+- `category` and `election_type` are defined in `elections.csv` and stored on the `elections` table; valid values are enforced at load time
