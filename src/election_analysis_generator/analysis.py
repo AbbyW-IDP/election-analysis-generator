@@ -280,12 +280,17 @@ class ElectionAnalyzer:
 
         seen: set[int] = set()
         for e in resolved:
+            if e.id is None:
+                raise ValueError(
+                    f"Election {e!r} has no id; party_share requires resolved elections to have ids."
+                )
             if e.id in seen:
                 raise ValueError(
                     f"Duplicate election in party_share arguments: {e.name!r} "
                     f"(id={e.id}) appears more than once."
                 )
             seen.add(e.id)
+
 
         totals = self._get_party_totals(election_ids, parties)
 
