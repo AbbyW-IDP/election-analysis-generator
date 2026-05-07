@@ -490,7 +490,7 @@ class LoadPrecinctDetail(_LoaderBase):
 
         import openpyxl
 
-        wb = openpyxl.load_workbook(path, read_only=False, data_only=True)
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
         contest_id_map = self._build_contest_id_map()
 
         for sheet_name in wb.sheetnames:
