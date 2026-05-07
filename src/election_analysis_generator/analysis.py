@@ -297,24 +297,17 @@ class ElectionAnalyzer:
         if not contests:
             return pd.DataFrame(columns=["contest"])
 
-        # All-party totals per contest per election for denominator
-        all_totals = self._db.query(
-            f"""
-            SELECT e.id AS election_id, e.name AS election_name,
-                   co.contest_name,
-                   SUM(ca.total_votes) AS contest_total
-            FROM candidates ca
-            JOIN contests  co ON ca.contest_id  = co.id
-            JOIN elections e  ON ca.election_id = e.id
-            WHERE e.id IN ({_placeholders(len(election_ids))})
-              AND co.is_legislation = 0
-            GROUP BY e.id, co.contest_name
-            """,    # nosec B608 - placeholders only, values passed as parameters
-            election_ids,
-        )
-
         df = totals[totals["contest_name"].isin(list(contests))].copy()
-        df = df.merge(all_totals, on=["election_id", "election_name", "contest_name"])
+
+        # Derive the contest-level denominator from the already-fetched totals
+        # by summing party_total across all parties per (election, contest).
+        # This avoids a second near-identical SQL round-trip.
+        contest_totals = (
+            df.groupby(["election_id", "election_name", "contest_name"], as_index=False)["party_total"]
+            .sum()
+            .rename(columns={"party_total": "contest_total"})
+        )
+        df = df.merge(contest_totals, on=["election_id", "election_name", "contest_name"])
         df["vote_share"] = df["party_total"] / df["contest_total"]
 
         pivot = df.pivot_table(
@@ -528,7 +521,11 @@ class ElectionAnalyzer:
         if df.empty:
             return df
 
-        rv = df["registered_voters"].replace(0, pd.NA)
-        df["turnout_rate"] = df["total_votes"] / rv
+        df["turnout_rate"] = df.apply(
+            lambda r: r["total_votes"] / r["registered_voters"]
+            if r["registered_voters"] and r["registered_voters"] > 0
+            else None,
+            axis=1,
+        )
 
         return df
