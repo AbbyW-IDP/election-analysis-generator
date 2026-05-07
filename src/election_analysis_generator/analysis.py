@@ -528,11 +528,7 @@ class ElectionAnalyzer:
         if df.empty:
             return df
 
-        df["turnout_rate"] = df.apply(
-            lambda r: r["total_votes"] / r["registered_voters"]
-            if r["registered_voters"] and r["registered_voters"] > 0
-            else None,
-            axis=1,
-        )
+        rv = df["registered_voters"].replace(0, pd.NA)
+        df["turnout_rate"] = df["total_votes"] / rv
 
         return df

@@ -221,6 +221,7 @@ def import_flags(
         else:
             counts["skipped"] += 1
 
+    db._conn.commit()
     return counts
 
 

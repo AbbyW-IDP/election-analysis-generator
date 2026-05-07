@@ -703,7 +703,6 @@ class ElectionDatabase:
             "INSERT OR IGNORE INTO contest_names (contest_name, first_seen_year) VALUES (?,?)",
             (name, year),
         )
-        self._conn.commit()
 
     # ------------------------------------------------------------------
     # Overrides
@@ -748,7 +747,6 @@ class ElectionDatabase:
             "INSERT OR REPLACE INTO contest_name_overrides (contest_name_raw, contest_name, note) VALUES (?,?,?)",
             (raw_name, canonical_name, note),
         )
-        self._conn.commit()
 
     # ------------------------------------------------------------------
     # Flags
@@ -790,7 +788,6 @@ class ElectionDatabase:
         self._conn.execute(
             "UPDATE contest_name_flags SET resolved = 1 WHERE id = ?", (flag_id,)
         )
-        self._conn.commit()
 
     def _write_flags(self, df: pd.DataFrame, year: int) -> None:
         """Insert flag rows for all unique contest names in df.
@@ -811,7 +808,6 @@ class ElectionDatabase:
             "INSERT INTO contest_name_flags (year, contest_name_raw, contest_name) VALUES (?,?,?)",
             flag_rows,
         )
-        self._conn.commit()
 
     # ------------------------------------------------------------------
     # Precinct-level results
