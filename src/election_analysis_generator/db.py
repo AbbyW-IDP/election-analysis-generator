@@ -413,7 +413,7 @@ class ElectionDatabase:
             return {}
         placeholders = _placeholders(len(contest_names))
         rows = self._conn.execute(
-            f"SELECT contest_name, id FROM contests WHERE contest_name IN ({placeholders})",  # nosec B608 - placeholders only, values passed as parameter
+            f"SELECT contest_name, id FROM contests WHERE contest_name IN ({placeholders})",
             contest_names,
         ).fetchall()
         result = {r["contest_name"]: r["id"] for r in rows}
@@ -831,7 +831,7 @@ class ElectionDatabase:
     # The cross-check query in the schema notes can verify this after a load.
     # ------------------------------------------------------------------
 
-    def insert_precinct_results(self, rows: list[dict]) -> int:
+    def insert_precinct_results(self, rows: list[dict]) -> None:
         """Insert precinct-level result rows, skipping duplicates.
 
         Each dict in *rows* must have the keys:
@@ -840,10 +840,8 @@ class ElectionDatabase:
             polling, provisional, total_votes
 
         contest_id must be the integer primary key from the contests table,
-        not the normalized name string.
-
-        Returns the number of rows actually inserted. Duplicates are silently
-        skipped via INSERT OR IGNORE, so the count may be less than len(rows).
+        not the normalized name string. Duplicates are silently skipped via
+        INSERT OR IGNORE.
 
         Raises:
             sqlite3.IntegrityError  – if election_id or contest_id FK is
@@ -877,9 +875,8 @@ class ElectionDatabase:
                 :total_votes
             )
         """
-        cursor = self._conn.executemany(sql, rows)
+        self._conn.executemany(sql, rows)
         self._conn.commit()
-        return cursor.rowcount
 
     # ------------------------------------------------------------------
     # Read access (for analysis)

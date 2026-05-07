@@ -77,8 +77,8 @@ def load_detail() -> None:
         print("No new detail files found.")
         return
 
-    for filename, (election, rows_inserted) in results.items():
-        print(f"  {election.name} ({filename}): {rows_inserted} rows inserted")
+    for filename, election in results.items():
+        print(f"  {election.name} ({filename}): loaded")
 
 
 DEFAULT_OUTPUT = Path("election_analysis.xlsx")
