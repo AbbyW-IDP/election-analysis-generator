@@ -40,8 +40,9 @@ Supported analysis names
 ------------------------
 - ``pct_change_by_party``   requires exactly 2 elections
 - ``party_share``           requires 2+ elections
-- ``turnout``               elections optional (defaults to all)
-- ``aggregated_csv``        elections optional (defaults to all)
+- ``turnout``               elections optional (defaults to all); comparable_only ignored
+- ``aggregated_csv``        elections optional (defaults to all); comparable_only ignored
+- ``precinct_turnout``      elections optional (defaults to all); comparable_only ignored
 
 Adding future analyses
 ----------------------
@@ -57,6 +58,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
+import warnings
 
 import pandas as pd
 
@@ -224,7 +226,13 @@ def _run_turnout(
     elections: list[str],
     comparable_only: bool = True,
 ) -> pd.DataFrame:
-    return analyzer.turnout(*elections)  # comparable_only is not applicable to turnout
+    if not comparable_only:
+        warnings.warn(
+            "comparable_only=False has no effect on turnout — "
+            "all elections are always included.",
+            stacklevel=2,
+        )
+    return analyzer.turnout(*elections)
 
 
 def _run_aggregated_csv(
@@ -232,7 +240,13 @@ def _run_aggregated_csv(
     elections: list[str],
     comparable_only: bool = True,
 ) -> pd.DataFrame:
-    return analyzer.aggregated_csv(*elections)  # comparable_only not applicable
+    if not comparable_only:
+        warnings.warn(
+            "comparable_only=False has no effect on aggregated_csv — "
+            "all contests are always included.",
+            stacklevel=2,
+        )
+    return analyzer.aggregated_csv(*elections)
 
 
 def _run_precinct_turnout(
@@ -240,7 +254,13 @@ def _run_precinct_turnout(
     elections: list[str],
     comparable_only: bool = True,
 ) -> pd.DataFrame:
-    return analyzer.precinct_turnout(*elections)  # comparable_only not applicable
+    if not comparable_only:
+        warnings.warn(
+            "comparable_only=False has no effect on precinct_turnout — "
+            "all contests are always included.",
+            stacklevel=2,
+        )
+    return analyzer.precinct_turnout(*elections)
 
 
 ANALYSIS_REGISTRY: dict[
