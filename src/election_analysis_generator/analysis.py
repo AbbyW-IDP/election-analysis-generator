@@ -105,15 +105,15 @@ class ElectionAnalyzer:
                 e.year,
                 e.election_date,
                 co.contest_name,
-                ca.party,
-                SUM(ca.total_votes) AS party_total
-            FROM contest_results ca
-            JOIN contests  co ON ca.contest_id  = co.id
-            JOIN elections e  ON ca.election_id = e.id
+                cr.party,
+                SUM(cr.total_votes) AS party_total
+            FROM contest_results cr
+            JOIN contests  co ON cr.contest_id  = co.id
+            JOIN elections e  ON cr.election_id = e.id
             WHERE e.id IN ({_placeholders(len(election_ids))})
-              AND ca.party IN ({_placeholders(len(parties))})
+              AND cr.party IN ({_placeholders(len(parties))})
               AND co.is_legislation = 0
-            GROUP BY e.id, co.contest_name, ca.party
+            GROUP BY e.id, co.contest_name, cr.party
             """,  # nosec B608 - placeholders only, values passed as parameters
             list(election_ids) + list(parties),
         )
@@ -413,26 +413,26 @@ class ElectionAnalyzer:
         df = self._db.query(
             f"""
             SELECT
-                ca.line_number          AS "line number",
-                ca.contest_name_raw     AS "contest name",
-                ca.choice_name          AS "choice name",
-                ca.party                AS "party",
-                ca.total_votes          AS "total votes",
-                ca.percent_of_votes     AS "percent of votes",
-                ca.registered_voters    AS "registered voters",
-                ca.ballots_cast         AS "ballots cast",
-                ca.num_precinct_total   AS "num precinct total",
-                ca.num_precinct_rptg    AS "num precinct rptg",
-                ca.over_votes           AS "over votes",
-                ca.under_votes          AS "under votes",
-                ca.year                 AS "year",
+                cr.line_number          AS "line number",
+                cr.contest_name_raw     AS "contest name",
+                cr.choice_name          AS "choice name",
+                cr.party                AS "party",
+                cr.total_votes          AS "total votes",
+                cr.percent_of_votes     AS "percent of votes",
+                cr.registered_voters    AS "registered voters",
+                cr.ballots_cast         AS "ballots cast",
+                cr.num_precinct_total   AS "num precinct total",
+                cr.num_precinct_rptg    AS "num precinct rptg",
+                cr.over_votes           AS "over votes",
+                cr.under_votes          AS "under votes",
+                cr.year                 AS "year",
                 e.category              AS "category",
-                ca.contest_name         AS "contest name (normalized)",
-                ca.election_name        AS "election name"
-            FROM contest_results ca
-            JOIN elections e ON ca.election_id = e.id
+                cr.contest_name         AS "contest name (normalized)",
+                cr.election_name        AS "election name"
+            FROM contest_results cr
+            JOIN elections e ON cr.election_id = e.id
             WHERE e.id IN ({_placeholders(len(election_ids))})
-            ORDER BY ca.year, ca.contest_name, ca.party, ca.choice_name
+            ORDER BY cr.year, cr.contest_name, cr.party, cr.choice_name
             """,  # nosec B608 - placeholders only, values passed as parameters
             election_ids,
         )
@@ -489,7 +489,7 @@ class ElectionAnalyzer:
                 e.name                      AS election,
                 e.year,
                 co.contest_name             AS contest,
-                ca.party,
+                cr.party,
                 pr.choice_name              AS candidate,
                 pr.precinct,
                 pr.registered_voters,
@@ -501,13 +501,13 @@ class ElectionAnalyzer:
             FROM candidate_precinct_results pr
             JOIN elections e   ON pr.election_id = e.id
             JOIN contests  co  ON pr.contest_id  = co.id
-            LEFT JOIN contest_results ca
-                ON  ca.election_id = pr.election_id
-                AND ca.contest_id  = pr.contest_id
-                AND ca.choice_name = pr.choice_name
+            LEFT JOIN contest_results cr
+                ON  cr.election_id = pr.election_id
+                AND cr.contest_id  = pr.contest_id
+                AND cr.choice_name = pr.choice_name
             WHERE e.id IN ({_placeholders(len(election_ids))})
               AND co.is_legislation = 0
-            ORDER BY e.year, e.name, co.contest_name, ca.party,
+            ORDER BY e.year, e.name, co.contest_name, cr.party,
                      pr.choice_name, pr.precinct
             """,  # nosec B608 — placeholders only, values passed as params
             election_ids,

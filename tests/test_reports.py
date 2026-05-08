@@ -4,6 +4,7 @@ Tests for election_analysis.reports
 
 from pathlib import Path
 import re
+import warnings
 
 import pandas as pd
 import pytest
@@ -13,6 +14,10 @@ from src.election_analysis_generator.reports import (
     ReportConfig,
     load_reports_config,
     run_reports,
+    ANALYSIS_REGISTRY,
+    _run_turnout,
+    _run_aggregated_csv,
+    _run_precinct_turnout,
     ANALYSIS_REGISTRY,
 )
 from tests.conftest import seed_election
@@ -503,6 +508,37 @@ class TestAnalysisRegistry:
         written = run_reports(reports, db_with_elections, base_dir=tmp_path)
         df = pd.read_excel(written[0], sheet_name="raw data")
         assert set(df["year"].unique()) == {2022}
+
+    @pytest.mark.parametrize("fn, name", [
+        (_run_turnout,        "turnout"),
+        (_run_aggregated_csv, "aggregated_csv"),
+        (_run_precinct_turnout, "precinct_turnout"),
+    ])
+    def test_comparable_only_true_warns(self, fn, name, db_with_elections):
+        """comparable_only=True (the default) warns for analyses that ignore it."""
+        az = db_with_elections  # just need something with the right methods
+        from election_analysis_generator.analysis import ElectionAnalyzer
+        az = ElectionAnalyzer(db_with_elections)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            fn(az, [], comparable_only=True)
+        assert len(w) == 1, f"Expected 1 warning for {name}, got {len(w)}"
+        assert issubclass(w[0].category, UserWarning)
+        assert name in str(w[0].message)
+
+    @pytest.mark.parametrize("fn, name", [
+        (_run_turnout,        "turnout"),
+        (_run_aggregated_csv, "aggregated_csv"),
+        (_run_precinct_turnout, "precinct_turnout"),
+    ])
+    def test_comparable_only_false_no_warning(self, fn, name, db_with_elections):
+        """comparable_only=False suppresses the warning — user has acknowledged the setting."""
+        from election_analysis_generator.analysis import ElectionAnalyzer
+        az = ElectionAnalyzer(db_with_elections)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            fn(az, [], comparable_only=False)
+        assert len(w) == 0, f"Expected no warnings for {name} with comparable_only=False, got {len(w)}"
 
 
 # ---------------------------------------------------------------------------
