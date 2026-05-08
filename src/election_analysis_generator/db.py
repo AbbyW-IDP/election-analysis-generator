@@ -141,7 +141,14 @@ _SCHEMA = """
 
 
 def _placeholders(n: int) -> str:
-    """Return a comma-separated string of n '?' placeholders for use in SQL IN clauses."""
+    """Return a comma-separated string of n '?' placeholders for use in SQL IN clauses.
+
+    Raises:
+        ValueError: if n < 1, which would produce an empty IN clause and
+                    invalid SQL.
+    """
+    if n < 1:
+        raise ValueError(f"_placeholders requires n >= 1, got {n}")
     return ",".join("?" * n)
 
 

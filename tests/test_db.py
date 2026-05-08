@@ -7,9 +7,25 @@ from pathlib import Path
 
 import pytest
 
-from src.election_analysis_generator.db import ElectionDatabase, DEFAULT_DB_PATH
+from src.election_analysis_generator.db import ElectionDatabase, DEFAULT_DB_PATH, _placeholders
 from src.election_analysis_generator.models import Election
 from tests.conftest import make_candidates_df, seed_election
+
+
+class TestPlaceholders:
+    def test_single_placeholder(self):
+        assert _placeholders(1) == "?"
+
+    def test_multiple_placeholders(self):
+        assert _placeholders(3) == "?,?,?"
+
+    def test_zero_raises(self):
+        with pytest.raises(ValueError, match="n >= 1"):
+            _placeholders(0)
+
+    def test_negative_raises(self):
+        with pytest.raises(ValueError, match="n >= 1"):
+            _placeholders(-1)
 
 
 class TestSchema:
