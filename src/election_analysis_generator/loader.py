@@ -73,15 +73,15 @@ _NO_CANDIDATE_MARKERS = frozenset(
 # Required columns in elections.csv.
 _CONFIG_REQUIRED = frozenset({"year", "election_date", "summary_file"})
 
-# Optional columns and their types. Values are (coerce_fn, nullable).
+# Optional columns and their coercion functions.
 # Absent columns and blank cells both produce None.
-_CONFIG_OPTIONAL: dict[str, tuple] = {
-    "results_last_updated": (str,   True),
-    "category":             (str,   True),
-    "election_type":        (str,   True),
-    "registered_voters":    (int,   True),
-    "ballots_cast":         (int,   True),
-    "detail_file":          (str,   True),
+_CONFIG_OPTIONAL: dict[str, type] = {
+    "results_last_updated": str,
+    "category":             str,
+    "election_type":        str,
+    "registered_voters":    int,
+    "ballots_cast":         int,
+    "detail_file":          str,
 }
 
 
@@ -159,10 +159,10 @@ def _year_from_filename(filename: str) -> int | None:
 
 _T = TypeVar("_T")
 
-def _coerce_config_value(value: object, coerce_fn, nullable: bool) -> _T | None:
+def _coerce_config_value(value: object, coerce_fn: type) -> _T | None:
     """Coerce a single config cell value to the target type.
 
-    Blank strings and pandas NA/NaN become None for nullable fields.
+    None, pandas NA/NaN, and blank/whitespace strings all return None.
     """
     # Treat pandas NA, float NaN, and empty/whitespace strings as missing
     if value is None:
@@ -173,8 +173,6 @@ def _coerce_config_value(value: object, coerce_fn, nullable: bool) -> _T | None:
     except (TypeError, ValueError):
         pass
     if isinstance(value, str) and not value.strip():
-        return None
-    if nullable and value is None:
         return None
     try:
         return coerce_fn(value)
@@ -255,7 +253,7 @@ def load_elections_config(config_path: Path = DEFAULT_CONFIG_PATH) -> list[dict]
     entries = []
     for row_index, row in df.iterrows():
         year_raw = row.get("year", "")
-        year_val = _coerce_config_value(year_raw, int, False)
+        year_val = _coerce_config_value(year_raw, int)
         if year_val is None:
             raise ValueError(
                 f"Row {int(row_index) + 1}: 'year' is required and must be a valid integer."  # type: ignore[arg-type]
@@ -273,9 +271,9 @@ def load_elections_config(config_path: Path = DEFAULT_CONFIG_PATH) -> list[dict]
             "summary_file":  str(row["summary_file"]).strip(),
         }
 
-        for col, (coerce_fn, nullable) in _CONFIG_OPTIONAL.items():
+        for col, coerce_fn in _CONFIG_OPTIONAL.items():
             raw = row.get(col, "")
-            entry[col] = _coerce_config_value(raw, coerce_fn, nullable)
+            entry[col] = _coerce_config_value(raw, coerce_fn)
 
         _validate_config_entry(entry, int(row_index) + 1)  # type: ignore[arg-type]
 

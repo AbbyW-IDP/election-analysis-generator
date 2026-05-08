@@ -195,10 +195,10 @@ class ElectionDatabase:
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._create_schema()
 
-    def __enter__(self):
+    def __enter__(self) -> "ElectionDatabase":
         return self
 
-    def __exit__(self, *_):
+    def __exit__(self, *_: object) -> None:
         self.close()
 
     def close(self) -> None:
