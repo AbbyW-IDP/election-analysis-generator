@@ -30,7 +30,7 @@ def _seed_precinct_row(db, election, contest_raw: str, choice_name: str, **overr
     row = db._conn.execute(
         "SELECT contests.id FROM contests JOIN contest_results "
         "ON contests.id = contest_results.contest_id "
-        "WHERE candidates.election_id = ? AND candidates.choice_name = ?",
+        "WHERE contest_results.election_id = ? AND contest_results.choice_name = ?",
         (election.id, choice_name),
     ).fetchone()
     if row is None:
