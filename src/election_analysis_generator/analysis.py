@@ -226,14 +226,8 @@ class ElectionAnalyzer:
                 if col in pivot.columns:
                     ordered.append(col)
 
-        result = pivot[ordered].copy()
-        if not isinstance(result, pd.DataFrame):
-            raise TypeError(f"Expected DataFrame after column selection, got {type(result).__name__}")
+        result: pd.DataFrame = pivot[ordered].copy()
         return result.rename(columns={"contest_name": "contest"})
-
-    # ------------------------------------------------------------------
-    # Analysis: party share of total votes
-    # ------------------------------------------------------------------
 
     def party_share(
         self,
@@ -336,9 +330,7 @@ class ElectionAnalyzer:
             if pp_col in pivot.columns:
                 ordered.append(pp_col)
 
-        result = pivot[ordered].copy()
-        if not isinstance(result, pd.DataFrame):
-            raise TypeError(f"Expected DataFrame after column selection, got {type(result).__name__}")
+        result: pd.DataFrame = pivot[ordered].copy()
         return result.rename(columns={"contest_name": "contest"})
 
     # ------------------------------------------------------------------
