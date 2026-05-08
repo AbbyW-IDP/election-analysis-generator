@@ -339,6 +339,8 @@ class ElectionDatabase:
             Same tuple as insert_election: (election_with_id, new_names).
         """
         election, new_names = self.insert_election(election, df)
+        if election.id is None:
+            raise RuntimeError("insert_election did not return an election id")
         self.register_file(filename, election.id)
         return election, new_names
 
@@ -444,7 +446,7 @@ class ElectionDatabase:
             return {}
         placeholders = _placeholders(len(contest_names))
         rows = self._conn.execute(
-            f"SELECT contest_name, id FROM contests WHERE contest_name IN ({placeholders})",
+            f"SELECT contest_name, id FROM contests WHERE contest_name IN ({placeholders})",  # nosec B608 - placeholders only, values passed as parameters
             contest_names,
         ).fetchall()
         result = {r["contest_name"]: r["id"] for r in rows}

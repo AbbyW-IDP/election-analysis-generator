@@ -131,7 +131,7 @@ class ElectionAnalyzer:
         """
         required = len(election_ids) * len(parties)
 
-        filtered: pd.DataFrame = (
+        raw = (
             totals[
                 totals["election_id"].isin(election_ids)
                 & totals["party"].isin(parties)
@@ -140,6 +140,7 @@ class ElectionAnalyzer:
             .groupby("contest_name")
             .filter(lambda g: len(g) == required)
         )
+        filtered: pd.DataFrame = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
 
         contest_names = filtered.loc[:, "contest_name"].astype(str).tolist()
         return set(contest_names)
@@ -226,7 +227,8 @@ class ElectionAnalyzer:
                 if col in pivot.columns:
                     ordered.append(col)
 
-        result: pd.DataFrame = pivot[ordered].copy()
+        raw_result = pivot[ordered].copy()
+        result: pd.DataFrame = raw_result if isinstance(raw_result, pd.DataFrame) else pd.DataFrame(raw_result)
         return result.rename(columns={"contest_name": "contest"})
 
     def party_share(
@@ -271,6 +273,8 @@ class ElectionAnalyzer:
 
         seen: set[int] = set()
         for e in resolved:
+            if e.id is None:
+                continue
             if e.id in seen:
                 raise ValueError(
                     f"Duplicate election in party_share arguments: {e.name!r} "
@@ -293,11 +297,12 @@ class ElectionAnalyzer:
         # Derive the contest-level denominator from the already-fetched totals
         # by summing party_total across all parties per (election, contest).
         # This avoids a second near-identical SQL round-trip.
-        contest_totals = (
+        raw_totals = (
             df.groupby(["election_id", "election_name", "contest_name"], as_index=False)["party_total"]
             .sum()
-            .rename(columns={"party_total": "contest_total"})
         )
+        contest_totals: pd.DataFrame = raw_totals if isinstance(raw_totals, pd.DataFrame) else pd.DataFrame(raw_totals)
+        contest_totals = contest_totals.rename(columns={"party_total": "contest_total"})
         df = df.merge(contest_totals, on=["election_id", "election_name", "contest_name"])
         df["vote_share"] = df["party_total"] / df["contest_total"]
 
@@ -330,7 +335,8 @@ class ElectionAnalyzer:
             if pp_col in pivot.columns:
                 ordered.append(pp_col)
 
-        result: pd.DataFrame = pivot[ordered].copy()
+        raw_result = pivot[ordered].copy()
+        result: pd.DataFrame = raw_result if isinstance(raw_result, pd.DataFrame) else pd.DataFrame(raw_result)
         return result.rename(columns={"contest_name": "contest"})
 
     # ------------------------------------------------------------------

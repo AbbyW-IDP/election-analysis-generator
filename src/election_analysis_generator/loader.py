@@ -28,7 +28,7 @@ from __future__ import annotations
 import re
 from datetime import date, datetime
 from pathlib import Path
-from typing import TypeVar
+from typing import Any
 
 import openpyxl
 import pandas as pd
@@ -157,9 +157,7 @@ def _year_from_filename(filename: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
-_T = TypeVar("_T")
-
-def _coerce_config_value(value: object, coerce_fn: type) -> _T | None:
+def _coerce_config_value(value: object, coerce_fn: type) -> Any:
     """Coerce a single config cell value to the target type.
 
     None, pandas NA/NaN, and blank/whitespace strings all return None.
