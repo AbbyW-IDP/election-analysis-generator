@@ -403,11 +403,10 @@ class LoadSummary(_LoaderBase):
             registered_voters=config.get("registered_voters"),
         )
 
-        election, new_names = self._db.insert_election(election, df)
+        election, new_names = self._db.insert_election_with_file(election, df, path.name)
 
         if election.id is None:
             raise RuntimeError("insert_election did not return an election id")
-        self._db.register_file(path.name, election.id)
         return election, new_names
 
 

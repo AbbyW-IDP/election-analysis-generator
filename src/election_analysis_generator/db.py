@@ -311,6 +311,30 @@ class ElectionDatabase:
         self._conn.commit()
         return election, new_names
 
+    def insert_election_with_file(
+        self,
+        election: Election,
+        df: pd.DataFrame,
+        filename: str,
+    ) -> tuple[Election, list[str]]:
+        """Insert an election and immediately register its source file.
+
+        This is the canonical single-step operation used by both the
+        production loader (LoadSummary) and the test helper (seed_election).
+        Keeping the two calls together here ensures they can never diverge.
+
+        Args:
+            election: Election to insert (id must be None).
+            df:       Normalized candidates DataFrame.
+            filename: Source filename to register (e.g. "2022-general-primary.csv").
+
+        Returns:
+            Same tuple as insert_election: (election_with_id, new_names).
+        """
+        election, new_names = self.insert_election(election, df)
+        self.register_file(filename, election.id)
+        return election, new_names
+
     def _normalize_df(
         self, df: pd.DataFrame, overrides: dict[str, str]
     ) -> pd.DataFrame:
