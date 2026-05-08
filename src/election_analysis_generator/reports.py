@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import tomllib
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
@@ -158,7 +159,8 @@ def run_reports(
     written = []
 
     for report in reports:
-        output_path = base_dir / report.output
+        ts = datetime.now().strftime("%Y-%m-%d_%H%M")
+        output_path = base_dir / report.output.with_stem(f"{report.output.stem}_{ts}")
         print(f"\nReport: {report.key!r} → {output_path}")
 
         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:

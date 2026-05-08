@@ -17,6 +17,7 @@ are now thin shims that open the database and delegate here.
 from __future__ import annotations
 
 from pathlib import Path
+import warnings
 
 import pandas as pd
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -149,7 +150,8 @@ def import_flags(
         Skip (no changes made).
 
     Returns a counts dict with keys ``accepted``, ``mapped``, ``ignored``,
-    ``skipped``, and ``errors``.
+    ``skipped``, and ``errors``. All changes are committed atomically after
+    the full loop — a crash mid-loop leaves the database unchanged.
 
     Raises ``FileNotFoundError`` if *input_path* does not exist.
     Raises ``ValueError`` if required columns are missing from the workbook.
@@ -170,8 +172,6 @@ def import_flags(
     unrecognised = set(df["Status"].unique()) - VALID_STATUSES
     if unrecognised:
         # Warn but continue — those rows will fall through to 'skipped'.
-        import warnings
-
         warnings.warn(
             f"Unrecognised Status values will be skipped: {unrecognised}",
             stacklevel=2,
@@ -267,6 +267,7 @@ def review_flags(db: ElectionDatabase) -> None:
             if choice == "a":
                 db.register_contest_name(norm, year)
                 db.resolve_flag(flag_id)
+                db._conn.commit()
                 print("  ✓ Accepted.\n")
                 break
 
@@ -298,6 +299,7 @@ def review_flags(db: ElectionDatabase) -> None:
                 note = input(f"  Note (optional, e.g. 'Renamed in {year}'): ").strip()
                 db.add_override(raw_name, canonical, note or None)
                 db.resolve_flag(flag_id)
+                db._conn.commit()
                 print(f"  ✓ Mapped to: {canonical}\n")
                 break
 

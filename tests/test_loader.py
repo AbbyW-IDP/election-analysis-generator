@@ -368,7 +368,7 @@ class TestLoaderLoadCsv:
         config = {"name": "2026 General Primary", "year": 2026, "summary_file": path.name, "election_date": "2026-03-17"}
         loader = LoadSummary(db)
         election, _ = loader.load_csv(path, config)
-        count = db.query("SELECT COUNT(*) AS n FROM candidates").iloc[0]["n"]
+        count = db.query("SELECT COUNT(*) AS n FROM contest_results").iloc[0]["n"]
         assert count == 2
 
     def test_returns_election_with_id(self, db, tmp_path):
@@ -590,9 +590,9 @@ class TestLoaderSync:
         )
         loader = LoadSummary(db)
         loader.sync(sources_dir=sources, config_path=config)
-        count_after_first = db.query("SELECT COUNT(*) AS n FROM candidates").iloc[0]["n"]
+        count_after_first = db.query("SELECT COUNT(*) AS n FROM contest_results").iloc[0]["n"]
         loader.sync(sources_dir=sources, config_path=config)
-        count_after_second = db.query("SELECT COUNT(*) AS n FROM candidates").iloc[0]["n"]
+        count_after_second = db.query("SELECT COUNT(*) AS n FROM contest_results").iloc[0]["n"]
         assert count_after_first == count_after_second
 
     def test_skips_missing_source_files(self, db, tmp_path):

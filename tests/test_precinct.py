@@ -86,7 +86,7 @@ class TestLoadSummaryInterface:
                                              "election_date": "2026-03-17",
                                              "summary_file": csv.name})
         assert election.id is not None
-        count = db.query("SELECT COUNT(*) AS n FROM candidates").iloc[0]["n"]
+        count = db.query("SELECT COUNT(*) AS n FROM contest_results").iloc[0]["n"]
         assert count == 1
 
     def test_load_csv_registers_source(self, db, tmp_path):
@@ -192,11 +192,8 @@ class TestLoadPrecinctDetailParsing:
         path = _make_minimal_workbook(tmp_path, rows)
 
         loader = LoadPrecinctDetail(db)
-        loader.load_detail_excel(path, election)
-        count = db.query(
-            "SELECT COUNT(*) AS n FROM candidate_precinct_results"
-        ).iloc[0]["n"]
-        assert count == 1
+        inserted = loader.load_detail_excel(path, election)
+        assert inserted == 1
 
     def test_skips_total_row(self, db, tmp_path):
         election = seed_election(
@@ -225,11 +222,8 @@ class TestLoadPrecinctDetailParsing:
         path = _make_minimal_workbook(tmp_path, rows)
 
         loader = LoadPrecinctDetail(db)
-        loader.load_detail_excel(path, election)
-        count = db.query(
-            "SELECT COUNT(*) AS n FROM candidate_precinct_results"
-        ).iloc[0]["n"]
-        assert count == 0
+        inserted = loader.load_detail_excel(path, election)
+        assert inserted == 0
 
     def test_skips_unknown_contest(self, db, tmp_path):
         """Sheets for contests not in the DB should be silently skipped."""
@@ -242,11 +236,8 @@ class TestLoadPrecinctDetailParsing:
         path = _make_minimal_workbook(tmp_path, rows)
 
         loader = LoadPrecinctDetail(db)
-        loader.load_detail_excel(path, election)
-        count = db.query(
-            "SELECT COUNT(*) AS n FROM candidate_precinct_results"
-        ).iloc[0]["n"]
-        assert count == 0
+        inserted = loader.load_detail_excel(path, election)
+        assert inserted == 0
 
     def test_stores_vote_breakdown(self, db, tmp_path):
         election = seed_election(
@@ -334,11 +325,8 @@ class TestLoadPrecinctDetailParsing:
         wb.save(path)
 
         loader = LoadPrecinctDetail(db)
-        loader.load_detail_excel(path, election)
-        count = db.query(
-            "SELECT COUNT(*) AS n FROM candidate_precinct_results"
-        ).iloc[0]["n"]
-        assert count == 2
+        inserted = loader.load_detail_excel(path, election)
+        assert inserted == 2
 
     def test_sync_skips_already_loaded(self, db, tmp_path):
         """sync() skips detail files already in loaded_sources."""

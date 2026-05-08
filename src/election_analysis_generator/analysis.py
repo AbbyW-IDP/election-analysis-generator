@@ -107,7 +107,7 @@ class ElectionAnalyzer:
                 co.contest_name,
                 ca.party,
                 SUM(ca.total_votes) AS party_total
-            FROM candidates ca
+            FROM contest_results ca
             JOIN contests  co ON ca.contest_id  = co.id
             JOIN elections e  ON ca.election_id = e.id
             WHERE e.id IN ({_placeholders(len(election_ids))})
@@ -131,7 +131,7 @@ class ElectionAnalyzer:
         """
         required = len(election_ids) * len(parties)
 
-        filtered = (
+        filtered: pd.DataFrame = (
             totals[
                 totals["election_id"].isin(election_ids)
                 & totals["party"].isin(parties)
@@ -140,9 +140,6 @@ class ElectionAnalyzer:
             .groupby("contest_name")
             .filter(lambda g: len(g) == required)
         )
-
-        if filtered is None:  # check so pyright doesn't yell at us
-            return set()
 
         contest_names = filtered.loc[:, "contest_name"].astype(str).tolist()
         return set(contest_names)
@@ -434,7 +431,7 @@ class ElectionAnalyzer:
                 e.category              AS "category",
                 ca.contest_name         AS "contest name (normalized)",
                 ca.election_name        AS "election name"
-            FROM candidates ca
+            FROM contest_results ca
             JOIN elections e ON ca.election_id = e.id
             WHERE e.id IN ({_placeholders(len(election_ids))})
             ORDER BY ca.year, ca.contest_name, ca.party, ca.choice_name
@@ -460,7 +457,7 @@ class ElectionAnalyzer:
         precinct row. Rows where registered_voters is NULL or zero are
         included but their turnout_rate is NaN.
 
-        Party is joined from the candidates (summary) table on
+        Party is joined from the contest_results (summary) table on
         (election_id, contest_id, choice_name) — no party column is stored
         in candidate_precinct_results itself.
 
@@ -506,7 +503,7 @@ class ElectionAnalyzer:
             FROM candidate_precinct_results pr
             JOIN elections e   ON pr.election_id = e.id
             JOIN contests  co  ON pr.contest_id  = co.id
-            LEFT JOIN candidates ca
+            LEFT JOIN contest_results ca
                 ON  ca.election_id = pr.election_id
                 AND ca.contest_id  = pr.contest_id
                 AND ca.choice_name = pr.choice_name
@@ -521,11 +518,7 @@ class ElectionAnalyzer:
         if df.empty:
             return df
 
-        df["turnout_rate"] = df.apply(
-            lambda r: r["total_votes"] / r["registered_voters"]
-            if r["registered_voters"] and r["registered_voters"] > 0
-            else None,
-            axis=1,
-        )
+        rv = df["registered_voters"].replace(0, pd.NA)
+        df["turnout_rate"] = df["total_votes"] / rv
 
         return df

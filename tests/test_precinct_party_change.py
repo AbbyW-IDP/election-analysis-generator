@@ -7,9 +7,9 @@ correct party reflected in precinct-level data for each election.
 Background
 ----------
 ``candidate_precinct_results`` has no ``party`` column of its own. Party is
-resolved at query time via a LEFT JOIN to ``candidates`` on
+resolved at query time via a LEFT JOIN to ``contest_results`` on
     (election_id, contest_id, choice_name)
-Because ``candidates`` is scoped per election, each election's precinct rows
+Because ``contest_results`` is scoped per election, each election's precinct rows
 independently pick up the party value stored for that election — a party
 change is therefore reflected automatically without any special-casing.
 
@@ -28,8 +28,8 @@ from tests.conftest import seed_election
 def _seed_precinct_row(db, election, contest_raw: str, choice_name: str, **overrides):
     """Insert one precinct result row for the given election/contest/candidate."""
     row = db._conn.execute(
-        "SELECT contests.id FROM contests JOIN candidates "
-        "ON contests.id = candidates.contest_id "
+        "SELECT contests.id FROM contests JOIN contest_results "
+        "ON contests.id = contest_results.contest_id "
         "WHERE candidates.election_id = ? AND candidates.choice_name = ?",
         (election.id, choice_name),
     ).fetchone()

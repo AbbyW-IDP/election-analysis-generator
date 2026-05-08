@@ -30,6 +30,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import TypeVar
 
+import openpyxl
 import pandas as pd
 
 from .db import ElectionDatabase
@@ -488,15 +489,12 @@ class LoadPrecinctDetail(_LoaderBase):
         if not path.exists():
             raise FileNotFoundError(f"Detail file not found: {path}")
 
-        import openpyxl
-
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
         contest_id_map = self._build_contest_id_map()
 
-        for sheet_name in wb.sheetnames:
-            ws = wb[sheet_name]
+        for ws in wb.worksheets:
             rows = list(ws.iter_rows(values_only=True))
-            self._process_sheet(rows, election.id, contest_id_map, sheet_name)
+            self._process_sheet(rows, election.id, contest_id_map, ws.title)
 
         self._db.register_file(path.name, election.id)
 

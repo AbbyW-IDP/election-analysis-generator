@@ -23,15 +23,15 @@ class TestSchema:
 
     def test_creates_candidates_table(self, db):
         tables = db.query("SELECT name FROM sqlite_master WHERE type='table'")
-        assert "candidates" in tables["name"].values
+        assert "contest_results" in tables["name"].values
 
     def test_creates_contest_names_table(self, db):
         tables = db.query("SELECT name FROM sqlite_master WHERE type='table'")
-        assert "contest_names" in tables["name"].values
+        assert "contest_name_registry" in tables["name"].values
 
     def test_creates_contest_name_flags_table(self, db):
         tables = db.query("SELECT name FROM sqlite_master WHERE type='table'")
-        assert "contest_name_flags" in tables["name"].values
+        assert "contest_flags" in tables["name"].values
 
     def test_creates_contest_name_overrides_table(self, db):
         tables = db.query("SELECT name FROM sqlite_master WHERE type='table'")
@@ -39,7 +39,7 @@ class TestSchema:
 
     def test_creates_loaded_files_table(self, db):
         tables = db.query("SELECT name FROM sqlite_master WHERE type='table'")
-        assert "loaded_files" in tables["name"].values
+        assert "source_files" in tables["name"].values
 
     def test_idempotent(self):
         db = ElectionDatabase(":memory:")
@@ -47,7 +47,7 @@ class TestSchema:
         db.close()
 
     def test_candidates_has_required_columns(self, db):
-        cols = set(db.query("PRAGMA table_info(candidates)")["name"])
+        cols = set(db.query("PRAGMA table_info(contest_results)")["name"])
         expected = {
             "id",
             "contest_id",
@@ -86,11 +86,11 @@ class TestSchema:
 
     def test_flags_resolved_defaults_to_zero(self, db):
         db._conn.execute(
-            "INSERT INTO contest_name_flags (year, contest_name_raw, contest_name) VALUES (?,?,?)",
+            "INSERT INTO contest_flags (year, contest_name_raw, contest_name) VALUES (?,?,?)",
             (2026, "Raw Name", "NORMALIZED NAME"),
         )
         db._conn.commit()
-        row = db._conn.execute("SELECT resolved FROM contest_name_flags").fetchone()
+        row = db._conn.execute("SELECT resolved FROM contest_flags").fetchone()
         assert row[0] == 0
 
 
@@ -146,12 +146,12 @@ class TestInsertElection:
             ]
         )
         db.insert_election(sample_election, df)
-        count = db.query("SELECT COUNT(*) AS n FROM candidates").iloc[0]["n"]
+        count = db.query("SELECT COUNT(*) AS n FROM contest_results").iloc[0]["n"]
         assert count == 2
 
     def test_elections_ballots_cast_comes_from_toml(self, db):
         """Elections-level ballots_cast comes from elections.toml (the Election object),
-        not from CSV rows. Per-contest figures are stored on candidates instead."""
+        not from CSV rows. Per-contest figures are stored on contest_results instead."""
         from datetime import date
 
         election = Election(
@@ -179,16 +179,16 @@ class TestInsertElection:
         assert result.registered_voters == 636341
 
     def test_candidates_ballots_cast_comes_from_csv(self, db, sample_election):
-        """Per-contest ballots_cast is stored on candidates from the CSV row."""
+        """Per-contest ballots_cast is stored on contest_results from the CSV row."""
         df = make_candidates_df(
             [{"contest_name_raw": "FOR SENATOR (Vote For 1)", "ballots_cast": 55555}]
         )
         db.insert_election(sample_election, df)
-        val = db.query("SELECT ballots_cast FROM candidates").iloc[0]["ballots_cast"]
+        val = db.query("SELECT ballots_cast FROM contest_results").iloc[0]["ballots_cast"]
         assert val == 55555
 
     def test_candidates_registered_voters_comes_from_csv(self, db, sample_election):
-        """Per-contest registered_voters is stored on candidates from the CSV row."""
+        """Per-contest registered_voters is stored on contest_results from the CSV row."""
         df = make_candidates_df(
             [
                 {
@@ -198,7 +198,7 @@ class TestInsertElection:
             ]
         )
         db.insert_election(sample_election, df)
-        val = db.query("SELECT registered_voters FROM candidates").iloc[0][
+        val = db.query("SELECT registered_voters FROM contest_results").iloc[0][
             "registered_voters"
         ]
         assert val == 77777
@@ -227,7 +227,7 @@ class TestInsertElection:
             [{"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM"}]
         )
         db.insert_election(sample_election, df)
-        name = db.query("SELECT contest_name FROM candidates").iloc[0]["contest_name"]
+        name = db.query("SELECT contest_name FROM contest_results").iloc[0]["contest_name"]
         assert name == "FOR SENATOR"
 
     def test_candidates_stores_election_name(self, db, sample_election):
@@ -235,7 +235,7 @@ class TestInsertElection:
             [{"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM"}]
         )
         db.insert_election(sample_election, df)
-        name = db.query("SELECT election_name FROM candidates").iloc[0]["election_name"]
+        name = db.query("SELECT election_name FROM contest_results").iloc[0]["election_name"]
         assert name == "2022 General Primary"
 
     def test_candidates_stores_year(self, db, sample_election):
@@ -243,7 +243,7 @@ class TestInsertElection:
             [{"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM"}]
         )
         db.insert_election(sample_election, df)
-        year = db.query("SELECT year FROM candidates").iloc[0]["year"]
+        year = db.query("SELECT year FROM contest_results").iloc[0]["year"]
         assert year == 2022
 
     def test_normalizes_party(self, db, sample_election):
@@ -251,7 +251,7 @@ class TestInsertElection:
             [{"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "D"}]
         )
         db.insert_election(sample_election, df)
-        party = db.query("SELECT party FROM candidates").iloc[0]["party"]
+        party = db.query("SELECT party FROM contest_results").iloc[0]["party"]
         assert party == "DEM"
 
     def test_infers_legislation_when_no_party(self, db, sample_election):
@@ -435,17 +435,17 @@ class TestFlags:
 
     def test_resolve_flag(self, db):
         db._conn.execute(
-            "INSERT INTO contest_name_flags (year, contest_name_raw, contest_name) VALUES (?,?,?)",
+            "INSERT INTO contest_flags (year, contest_name_raw, contest_name) VALUES (?,?,?)",
             (2026, "Raw", "NORMALIZED"),
         )
         db._conn.commit()
-        flag_id = db._conn.execute("SELECT id FROM contest_name_flags").fetchone()[0]
+        flag_id = db._conn.execute("SELECT id FROM contest_flags").fetchone()[0]
         db.resolve_flag(flag_id)
         assert db.get_unresolved_flags() == []
 
     def test_unresolved_flag_has_expected_keys(self, db):
         db._conn.execute(
-            "INSERT INTO contest_name_flags (year, contest_name_raw, contest_name) VALUES (?,?,?)",
+            "INSERT INTO contest_flags (year, contest_name_raw, contest_name) VALUES (?,?,?)",
             (2026, "Raw", "NORMALIZED"),
         )
         db._conn.commit()
@@ -614,7 +614,7 @@ class TestInsertPrecinctResults:
         # The summary candidate row was inserted by seed_election with total_votes=1000
         # (the make_candidates_df default). Update it to match our precinct sum (150).
         db._conn.execute(
-            "UPDATE candidates SET total_votes = 150 WHERE election_id = ?",
+            "UPDATE contest_results SET total_votes = 150 WHERE election_id = ?",
             (election.id,),
         )
         db._conn.commit()
@@ -623,7 +623,7 @@ class TestInsertPrecinctResults:
             """
             SELECT c.choice_name, c.total_votes AS summary_total, pr.detail_total,
                    c.total_votes - pr.detail_total AS diff
-            FROM candidates c
+            FROM contest_results c
             JOIN (
                 SELECT contest_id, choice_name, election_id,
                        SUM(total_votes) AS detail_total
@@ -712,7 +712,7 @@ class TestInsertCandidatesRefactor:
             "under_votes": 5.0,
         }])
         db.insert_election(sample_election, df)
-        row = db.query("SELECT * FROM candidates").iloc[0]
+        row = db.query("SELECT * FROM contest_results").iloc[0]
         assert row["choice_name"] == "Jane Smith"
         assert row["party"] == "DEM"
         assert row["total_votes"] == 42000.0
@@ -727,7 +727,7 @@ class TestInsertCandidatesRefactor:
         assert row["year"] == 2022
 
     def test_multiple_candidates_across_multiple_contests(self, db, sample_election):
-        """All rows stored correctly when there are N contests × M candidates."""
+        """All rows stored correctly when there are N contests × M results."""
         df = make_candidates_df([
             {"contest_name_raw": "FOR SENATOR (Vote For 1)",  "choice_name": "Alice", "party": "DEM"},
             {"contest_name_raw": "FOR SENATOR (Vote For 1)",  "choice_name": "Bob",   "party": "REP"},
@@ -735,7 +735,7 @@ class TestInsertCandidatesRefactor:
             {"contest_name_raw": "FOR GOVERNOR (Vote For 1)", "choice_name": "Dave",  "party": "REP"},
         ])
         db.insert_election(sample_election, df)
-        count = db.query("SELECT COUNT(*) AS n FROM candidates").iloc[0]["n"]
+        count = db.query("SELECT COUNT(*) AS n FROM contest_results").iloc[0]["n"]
         assert count == 4
 
     def test_contest_id_fk_is_correct_for_each_row(self, db, sample_election):
@@ -748,7 +748,7 @@ class TestInsertCandidatesRefactor:
 
         rows = db.query("""
             SELECT c.choice_name, co.contest_name
-            FROM candidates c
+            FROM contest_results c
             JOIN contests co ON co.id = c.contest_id
         """)
         alice = rows[rows["choice_name"] == "Alice"].iloc[0]
@@ -762,7 +762,7 @@ class TestInsertCandidatesRefactor:
             "line_number": None,
         }])
         db.insert_election(sample_election, df)
-        val = db.query("SELECT line_number FROM candidates").iloc[0]["line_number"]
+        val = db.query("SELECT line_number FROM contest_results").iloc[0]["line_number"]
         assert val is None
 
     def test_nan_line_number_stored_as_null(self, db, sample_election):
@@ -772,7 +772,7 @@ class TestInsertCandidatesRefactor:
             "line_number": float("nan"),
         }])
         db.insert_election(sample_election, df)
-        val = db.query("SELECT line_number FROM candidates").iloc[0]["line_number"]
+        val = db.query("SELECT line_number FROM contest_results").iloc[0]["line_number"]
         assert val is None
 
     def test_integer_line_number_stored_correctly(self, db, sample_election):
@@ -781,7 +781,7 @@ class TestInsertCandidatesRefactor:
             "line_number": 7.0,  # CSV floats are common
         }])
         db.insert_election(sample_election, df)
-        val = db.query("SELECT line_number FROM candidates").iloc[0]["line_number"]
+        val = db.query("SELECT line_number FROM contest_results").iloc[0]["line_number"]
         assert val == 7
 
     def test_row_count_matches_dataframe_length(self, db, sample_election):
@@ -793,5 +793,5 @@ class TestInsertCandidatesRefactor:
         ]
         df = make_candidates_df(rows)
         db.insert_election(sample_election, df)
-        count = db.query("SELECT COUNT(*) AS n FROM candidates").iloc[0]["n"]
+        count = db.query("SELECT COUNT(*) AS n FROM contest_results").iloc[0]["n"]
         assert count == n

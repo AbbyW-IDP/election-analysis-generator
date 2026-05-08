@@ -16,8 +16,12 @@ pyproject.toml, so after `uv sync` you can run:
 from __future__ import annotations
 
 import sys
+from datetime import datetime
 from pathlib import Path
 
+import pandas as pd
+
+from .analysis import ElectionAnalyzer
 from .db import ElectionDatabase, DEFAULT_DB_PATH
 from .loader import (
     LoadSummary,
@@ -86,8 +90,6 @@ DEFAULT_OUTPUT = Path("election_analysis.xlsx")
 
 def generate_analysis() -> None:
     """Run reports defined in reports.toml and write the results to Excel."""
-    from .analysis import ElectionAnalyzer
-
     reports_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_REPORTS_PATH
 
     with ElectionDatabase(DEFAULT_DB_PATH) as db:
@@ -120,11 +122,10 @@ def generate_analysis() -> None:
             print("Need at least 2 elections loaded to run comparisons.")
             return
 
-        import pandas as pd
-
         names = elections["name"].tolist()
         recent_a, recent_b = names[-2], names[-1]
-        output_path = DEFAULT_OUTPUT
+        ts = datetime.now().strftime("%Y-%m-%d_%H%M")
+        output_path = DEFAULT_OUTPUT.with_stem(f"{DEFAULT_OUTPUT.stem}_{ts}")
 
         print(f"Running pct_change_by_party: {recent_a!r} vs {recent_b!r}")
         pct_change = analyzer.pct_change_by_party(recent_a, recent_b)
