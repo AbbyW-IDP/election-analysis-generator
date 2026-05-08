@@ -15,6 +15,7 @@ pyproject.toml, so after `uv sync` you can run:
 
 from __future__ import annotations
 
+import argparse
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -41,13 +42,29 @@ from .flags import (
 
 def sync_sources() -> None:
     """Load any elections defined in elections.csv whose CSV hasn't been loaded yet."""
-    sources_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_SOURCES_DIR
-    config_path = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_CONFIG_PATH
+    parser = argparse.ArgumentParser(
+        description="Load any elections defined in elections.csv whose CSV hasn't been loaded yet."
+    )
+    parser.add_argument(
+        "sources_dir",
+        nargs="?",
+        type=Path,
+        default=DEFAULT_SOURCES_DIR,
+        help=f"Directory containing source CSVs (default: {DEFAULT_SOURCES_DIR})",
+    )
+    parser.add_argument(
+        "config_path",
+        nargs="?",
+        type=Path,
+        default=DEFAULT_CONFIG_PATH,
+        help=f"Path to elections.csv (default: {DEFAULT_CONFIG_PATH})",
+    )
+    args = parser.parse_args()
 
     with ElectionDatabase(DEFAULT_DB_PATH) as db:
         loader = LoadSummary(db)
-        print(f"Scanning {config_path} for new elections...")
-        results = loader.sync(sources_dir=sources_dir, config_path=config_path)
+        print(f"Scanning {args.config_path} for new elections...")
+        results = loader.sync(sources_dir=args.sources_dir, config_path=args.config_path)
 
     if not results:
         print("No new elections found.")
@@ -58,7 +75,7 @@ def sync_sources() -> None:
         print(f"\n  {election.name} ({filename}): loaded successfully")
         if new_names:
             any_flags = True
-            print(f"  ⚠ {len(new_names)} unrecognized contest name(s):")
+            print(f"  [!] {len(new_names)} unrecognized contest name(s):")
             for name in new_names:
                 print(f"    {name}")
 
@@ -69,13 +86,29 @@ def sync_sources() -> None:
 
 def load_detail() -> None:
     """Load precinct-detail Excel for any elections defined in elections.csv."""
-    sources_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_SOURCES_DIR
-    config_path = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_CONFIG_PATH
+    parser = argparse.ArgumentParser(
+        description="Load precinct-detail Excel for any elections defined in elections.csv."
+    )
+    parser.add_argument(
+        "sources_dir",
+        nargs="?",
+        type=Path,
+        default=DEFAULT_SOURCES_DIR,
+        help=f"Directory containing source files (default: {DEFAULT_SOURCES_DIR})",
+    )
+    parser.add_argument(
+        "config_path",
+        nargs="?",
+        type=Path,
+        default=DEFAULT_CONFIG_PATH,
+        help=f"Path to elections.csv (default: {DEFAULT_CONFIG_PATH})",
+    )
+    args = parser.parse_args()
 
     with ElectionDatabase(DEFAULT_DB_PATH) as db:
         loader = LoadPrecinctDetail(db)
-        print(f"Scanning {config_path} for new detail files...")
-        results = loader.sync(sources_dir=sources_dir, config_path=config_path)
+        print(f"Scanning {args.config_path} for new detail files...")
+        results = loader.sync(sources_dir=args.sources_dir, config_path=args.config_path)
 
     if not results:
         print("No new detail files found.")
@@ -90,7 +123,18 @@ DEFAULT_OUTPUT = Path("election_analysis.xlsx")
 
 def generate_analysis() -> None:
     """Run reports defined in reports.toml and write the results to Excel."""
-    reports_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_REPORTS_PATH
+    parser = argparse.ArgumentParser(
+        description="Run reports defined in reports.toml and write results to Excel."
+    )
+    parser.add_argument(
+        "reports_path",
+        nargs="?",
+        type=Path,
+        default=DEFAULT_REPORTS_PATH,
+        help=f"Path to reports.toml (default: {DEFAULT_REPORTS_PATH})",
+    )
+    args = parser.parse_args()
+    reports_path: Path = args.reports_path
 
     with ElectionDatabase(DEFAULT_DB_PATH) as db:
         if reports_path.exists():
@@ -145,16 +189,26 @@ def generate_analysis() -> None:
 
 def export_flags_cmd() -> None:
     """Write unresolved flags to flags_review.xlsx for spreadsheet review."""
-    output_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_EXPORT_PATH
+    parser = argparse.ArgumentParser(
+        description="Write unresolved flags to a spreadsheet for review."
+    )
+    parser.add_argument(
+        "output_path",
+        nargs="?",
+        type=Path,
+        default=DEFAULT_EXPORT_PATH,
+        help=f"Output path for the flags workbook (default: {DEFAULT_EXPORT_PATH})",
+    )
+    args = parser.parse_args()
 
     with ElectionDatabase(DEFAULT_DB_PATH) as db:
-        n = export_flags(db, output_path)
+        n = export_flags(db, args.output_path)
 
     if n == 0:
         print("No unresolved flags to export.")
         return
 
-    print(f"Exported {n} flag(s) to {output_path}")
+    print(f"Exported {n} flag(s) to {args.output_path}")
     print()
     print("Next steps:")
     print("  1. Open the workbook and review the 'flags' tab")
@@ -165,11 +219,21 @@ def export_flags_cmd() -> None:
 
 def import_flags_cmd() -> None:
     """Apply a reviewed flags_review.xlsx to the database."""
-    input_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_IMPORT_PATH
+    parser = argparse.ArgumentParser(
+        description="Apply a reviewed flags workbook to the database."
+    )
+    parser.add_argument(
+        "input_path",
+        nargs="?",
+        type=Path,
+        default=DEFAULT_IMPORT_PATH,
+        help=f"Path to the reviewed flags workbook (default: {DEFAULT_IMPORT_PATH})",
+    )
+    args = parser.parse_args()
 
     with ElectionDatabase(DEFAULT_DB_PATH) as db:
         try:
-            counts = import_flags(db, input_path)
+            counts = import_flags(db, args.input_path)
         except FileNotFoundError as e:
             print(e)
             sys.exit(1)
