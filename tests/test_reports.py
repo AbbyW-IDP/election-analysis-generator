@@ -14,7 +14,6 @@ from src.election_analysis_generator.reports import (
     ReportConfig,
     load_reports_config,
     run_reports,
-    ANALYSIS_REGISTRY,
     _run_turnout,
     _run_aggregated_csv,
     _run_precinct_turnout,
