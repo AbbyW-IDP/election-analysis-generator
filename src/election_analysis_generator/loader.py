@@ -41,7 +41,7 @@ DEFAULT_SOURCES_DIR = Path("sources")
 DEFAULT_CONFIG_PATH = Path("elections.csv")
 
 VALID_CATEGORIES = frozenset(
-    {"Consolidated", "Consolidated Primary", "General", "General Primary"}
+    {"consolidated", "consolidated primary", "general", "general primary"}
 )
 VALID_ELECTION_TYPES = frozenset({"presidential", "midterm", "off-year"})
 
@@ -187,12 +187,12 @@ def _validate_config_entry(entry: dict, row_index: int) -> None:
     category = entry.get("category")
     election_type = entry.get("election_type")
 
-    if category is not None and category.title() not in VALID_CATEGORIES:
+    if category is not None and category.strip().lower() not in VALID_CATEGORIES:
         raise ValueError(
             f"Row {row_index}: invalid category {category!r}. "
             f"Must be one of: {sorted(VALID_CATEGORIES)}"
         )
-    if election_type is not None and election_type.lower() not in VALID_ELECTION_TYPES:
+    if election_type is not None and election_type.strip().lower() not in VALID_ELECTION_TYPES:
         raise ValueError(
             f"Row {row_index}: invalid election_type {election_type!r}. "
             f"Must be one of: {sorted(VALID_ELECTION_TYPES)}"
