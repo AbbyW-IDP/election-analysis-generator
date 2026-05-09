@@ -29,33 +29,19 @@ class TestPlaceholders:
 
 
 class TestSchema:
-    def test_creates_elections_table(self, db):
+    # Consolidated from seven individual test_creates_*_table methods.
+    @pytest.mark.parametrize("table", [
+        "elections",
+        "contests",
+        "contest_results",
+        "contest_name_registry",
+        "contest_flags",
+        "contest_name_overrides",
+        "source_files",
+    ])
+    def test_required_tables_exist(self, db, table):
         tables = db.query("SELECT name FROM sqlite_master WHERE type='table'")
-        assert "elections" in tables["name"].values
-
-    def test_creates_contests_table(self, db):
-        tables = db.query("SELECT name FROM sqlite_master WHERE type='table'")
-        assert "contests" in tables["name"].values
-
-    def test_creates_candidates_table(self, db):
-        tables = db.query("SELECT name FROM sqlite_master WHERE type='table'")
-        assert "contest_results" in tables["name"].values
-
-    def test_creates_contest_names_table(self, db):
-        tables = db.query("SELECT name FROM sqlite_master WHERE type='table'")
-        assert "contest_name_registry" in tables["name"].values
-
-    def test_creates_contest_name_flags_table(self, db):
-        tables = db.query("SELECT name FROM sqlite_master WHERE type='table'")
-        assert "contest_flags" in tables["name"].values
-
-    def test_creates_contest_name_overrides_table(self, db):
-        tables = db.query("SELECT name FROM sqlite_master WHERE type='table'")
-        assert "contest_name_overrides" in tables["name"].values
-
-    def test_creates_loaded_files_table(self, db):
-        tables = db.query("SELECT name FROM sqlite_master WHERE type='table'")
-        assert "source_files" in tables["name"].values
+        assert table in tables["name"].values
 
     def test_idempotent(self):
         db = ElectionDatabase(":memory:")
@@ -380,6 +366,32 @@ class TestGetElection:
         assert result.election_date == date(2022, 6, 28)
         assert result.results_last_updated == date(2022, 7, 19)
 
+    def test_election_optional_fields_roundtrip(self, db):
+        """category, election_type, ballots_cast, registered_voters all survive a DB round-trip."""
+        from datetime import date as dt
+
+        election = Election(
+            id=None,
+            name="2022 General Primary",
+            year=2022,
+            election_date=dt(2022, 6, 28),
+            results_last_updated=None,
+            summary_file="2022-gp.csv",
+            category="General Primary",
+            election_type="midterm",
+            ballots_cast=145051,
+            registered_voters=636341,
+        )
+        df = make_candidates_df(
+            [{"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM"}]
+        )
+        db.insert_election(election, df)
+        result = db.get_election_by_name("2022 General Primary")
+        assert result.category == "General Primary"
+        assert result.election_type == "midterm"
+        assert result.ballots_cast == 145051
+        assert result.registered_voters == 636341
+
 
 class TestSetLegislationFlag:
     def test_manual_override_to_legislation(self, db, sample_election):
@@ -702,7 +714,7 @@ class TestBuildContestIdMap:
     def test_duplicate_names_do_not_cause_extra_queries(self, db):
         """Passing duplicate names returns one entry (set semantics from SQL IN)."""
         cid = self._seed_contest(db, "FOR SENATOR")
-        # Duplicates in the input list are fine — SQL IN deduplicates them.
+        # Duplicates in the input list are fine -- SQL IN deduplicates them.
         result = db._build_contest_id_map(["FOR SENATOR", "FOR SENATOR"])
         assert result == {"FOR SENATOR": cid}
 
@@ -743,7 +755,7 @@ class TestInsertCandidatesRefactor:
         assert row["year"] == 2022
 
     def test_multiple_candidates_across_multiple_contests(self, db, sample_election):
-        """All rows stored correctly when there are N contests × M results."""
+        """All rows stored correctly when there are N contests x M results."""
         df = make_candidates_df([
             {"contest_name_raw": "FOR SENATOR (Vote For 1)",  "choice_name": "Alice", "party": "DEM"},
             {"contest_name_raw": "FOR SENATOR (Vote For 1)",  "choice_name": "Bob",   "party": "REP"},

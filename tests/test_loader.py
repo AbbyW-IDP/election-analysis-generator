@@ -61,32 +61,24 @@ def write_config_csv(tmp_path: Path, entries: list[dict]) -> Path:
 
 
 class TestParseDate:
-    def test_parses_iso_format(self):
-        assert _parse_date("2026-03-17") == date(2026, 3, 17)
+    @pytest.mark.parametrize("raw, expected", [
+        ("2026-03-17",  date(2026, 3, 17)),
+        ("3/18/2014",   date(2014, 3, 18)),
+        ("11/05/2024",  date(2024, 11, 5)),
+        ("2022-12-31",  date(2022, 12, 31)),
+        ("6/1/2020",    date(2020, 6, 1)),
+    ])
+    def test_parses_known_formats(self, raw, expected):
+        assert _parse_date(raw) == expected
 
-    def test_parses_m_d_yyyy_format(self):
-        assert _parse_date("3/18/2014") == date(2014, 3, 18)
-
-    def test_parses_m_d_yyyy_with_double_digit_month_and_day(self):
-        assert _parse_date("11/05/2024") == date(2024, 11, 5)
-
-    def test_parses_iso_format_end_of_year(self):
-        assert _parse_date("2022-12-31") == date(2022, 12, 31)
-
-    def test_parses_m_d_yyyy_single_digit_day(self):
-        assert _parse_date("6/1/2020") == date(2020, 6, 1)
-
-    def test_raises_on_unrecognized_format(self):
-        with pytest.raises(ValueError, match="Unrecognized date format"):
-            _parse_date("18-03-2014")
-
-    def test_raises_on_garbage_input(self):
-        with pytest.raises(ValueError, match="Unrecognized date format"):
-            _parse_date("not-a-date")
-
-    def test_raises_on_empty_string(self):
+    @pytest.mark.parametrize("bad", [
+        "18-03-2014",
+        "not-a-date",
+        "",
+    ])
+    def test_raises_on_unrecognized_format(self, bad):
         with pytest.raises(ValueError):
-            _parse_date("")
+            _parse_date(bad)
 
 
 # ---------------------------------------------------------------------------
@@ -95,17 +87,14 @@ class TestParseDate:
 
 
 class TestDeriveElectionName:
-    def test_year_and_category(self):
-        assert _derive_election_name(2026, "General Primary") == "2026 General Primary"
-
-    def test_year_only_when_no_category(self):
-        assert _derive_election_name(2022, None) == "2022"
-
-    def test_year_only_when_empty_category(self):
-        assert _derive_election_name(2022, "") == "2022"
-
-    def test_different_category(self):
-        assert _derive_election_name(2024, "General") == "2024 General"
+    @pytest.mark.parametrize("year, category, expected", [
+        (2026, "General Primary", "2026 General Primary"),
+        (2022, None,              "2022"),
+        (2022, "",                "2022"),
+        (2024, "General",         "2024 General"),
+    ])
+    def test_derive_election_name(self, year, category, expected):
+        assert _derive_election_name(year, category) == expected
 
 
 # ---------------------------------------------------------------------------

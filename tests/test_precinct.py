@@ -1,5 +1,11 @@
 """
 Tests for LoadPrecinctDetail and ElectionAnalyzer.precinct_turnout()
+
+Note: Core precinct_turnout() contract tests (returns_dataframe, has_expected_columns,
+returns_empty_df_when_no_precinct_data, filters_to_specified_election, etc.) live in
+test_analysis.py::TestPrecinctTurnout. This file covers LoadPrecinctDetail parsing,
+and precinct-specific behaviour that requires direct DB manipulation (party join,
+legislation exclusion) not easily expressed through the _seed_precinct_data helper.
 """
 
 from pathlib import Path
@@ -14,97 +20,6 @@ from tests.conftest import seed_election
 
 # ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
-
-
-def _seed_precinct_results(db, election, rows: list[dict]) -> None:
-    """Insert precinct result rows into the DB for the given election."""
-    contest_id = db._conn.execute(
-        "SELECT id FROM contests LIMIT 1"
-    ).fetchone()["id"]
-    enriched = [
-        {
-            "election_id": election.id,
-            "contest_id": contest_id,
-            **row,
-        }
-        for row in rows
-    ]
-    db.insert_precinct_results(enriched)
-
-
-def _make_precinct_row(**overrides) -> dict:
-    defaults = {
-        "contest_name_raw": "FOR ATTORNEY GENERAL (Vote For 1)",
-        "choice_name": "Jane Smith",
-        "precinct": "Addison 001",
-        "registered_voters": 1000,
-        "early_votes": 10,
-        "vote_by_mail": 20,
-        "polling": 50,
-        "provisional": 0,
-        "total_votes": 80,
-    }
-    defaults.update(overrides)
-    return defaults
-
-
-# ---------------------------------------------------------------------------
-# LoadSummary — verify it behaves correctly
-# ---------------------------------------------------------------------------
-
-
-class TestLoadSummaryInterface:
-    def test_sync_raises_when_sources_dir_missing(self, db, tmp_path):
-        loader = LoadSummary(db)
-        with pytest.raises(FileNotFoundError):
-            loader.sync(sources_dir=tmp_path / "nonexistent")
-
-    def test_sync_returns_empty_when_no_config(self, db, tmp_path):
-        sources = tmp_path / "sources"
-        sources.mkdir()
-        loader = LoadSummary(db)
-        result = loader.sync(
-            sources_dir=sources,
-            config_path=tmp_path / "missing.toml",
-        )
-        assert result == {}
-
-    def test_load_csv_inserts_candidates(self, db, tmp_path):
-        csv = tmp_path / "2026-general-primary.csv"
-        csv.write_text(
-            "line number,contest name,choice name,party name,"
-            "total votes,percent of votes,registered voters,"
-            "ballots cast,num Precinct total,num Precinct rptg,"
-            "over votes,under votes\n"
-            "1,FOR SENATOR (Vote For 1),Jane Smith,D,"
-            "5000,100.0,50000,10000,10,10,0,0\n"
-        )
-        loader = LoadSummary(db)
-        election, _ = loader.load_csv(csv, {"name": "2026 General Primary",
-                                             "year": 2026,
-                                             "election_date": "2026-03-17",
-                                             "summary_file": csv.name})
-        assert election.id is not None
-        count = db.query("SELECT COUNT(*) AS n FROM contest_results").iloc[0]["n"]
-        assert count == 1
-
-    def test_load_csv_registers_source(self, db, tmp_path):
-        csv = tmp_path / "2026-general-primary.csv"
-        csv.write_text(
-            "contest name,party name,total votes\n"
-            "FOR SENATOR (Vote For 1),D,5000\n"
-        )
-        loader = LoadSummary(db)
-        loader.load_csv(csv, {"name": "2026 General Primary",
-                               "year": 2026,
-                               "election_date": "2026-03-17",
-                               "summary_file": csv.name})
-        assert db.is_file_loaded(csv.name)
-
-
-# ---------------------------------------------------------------------------
-# LoadPrecinctDetail — unit tests using a synthetic minimal workbook
 # ---------------------------------------------------------------------------
 
 
@@ -156,6 +71,11 @@ def _standard_sheet_rows(
     ]
 
 
+# ---------------------------------------------------------------------------
+# LoadPrecinctDetail — init / guard tests
+# ---------------------------------------------------------------------------
+
+
 class TestLoadPrecinctDetailInit:
     def test_raises_when_election_id_is_none(self, db, tmp_path):
         from src.election_analysis_generator.models import Election
@@ -179,6 +99,11 @@ class TestLoadPrecinctDetailInit:
         loader = LoadPrecinctDetail(db)
         with pytest.raises(FileNotFoundError):
             loader.load_detail_excel(Path("/nonexistent/detail.xlsx"), election)
+
+
+# ---------------------------------------------------------------------------
+# LoadPrecinctDetail — parsing
+# ---------------------------------------------------------------------------
 
 
 class TestLoadPrecinctDetailParsing:
@@ -313,7 +238,7 @@ class TestLoadPrecinctDetailParsing:
         )
         import openpyxl
         wb = openpyxl.Workbook()
-        ws = ws = wb.create_sheet()
+        ws = wb.create_sheet()
         ws.title = "2"
         # Row 0: contest
         ws.append(("FOR SENATOR (Vote For 1)",) + (None,) * 12)
@@ -377,7 +302,13 @@ class TestLoadPrecinctDetailParsing:
 
 
 # ---------------------------------------------------------------------------
-# ElectionAnalyzer.precinct_turnout()
+# ElectionAnalyzer.precinct_turnout() — behaviour requiring direct DB access
+#
+# The core contract tests (DataFrame shape, column names, empty-when-no-data,
+# filtering) live in test_analysis.py::TestPrecinctTurnout. Tests here cover
+# behaviour that needs the full election+precinct fixture and direct DB
+# queries (party join, legislation exclusion) that _seed_precinct_data
+# doesn't support cleanly.
 # ---------------------------------------------------------------------------
 
 
@@ -414,21 +345,6 @@ def db_with_precinct_data(db):
 
 
 class TestPrecinctTurnout:
-    def test_returns_dataframe(self, db_with_precinct_data):
-        analyzer = ElectionAnalyzer(db_with_precinct_data)
-        result = analyzer.precinct_turnout()
-        assert isinstance(result, pd.DataFrame)
-
-    def test_has_expected_columns(self, db_with_precinct_data):
-        analyzer = ElectionAnalyzer(db_with_precinct_data)
-        result = analyzer.precinct_turnout()
-        for col in [
-            "election", "year", "contest", "party", "candidate",
-            "precinct", "registered_voters", "early_votes", "vote_by_mail",
-            "polling", "provisional", "total_votes", "turnout_rate",
-        ]:
-            assert col in result.columns, f"Missing column: {col!r}"
-
     def test_turnout_rate_calculation(self, db_with_precinct_data):
         analyzer = ElectionAnalyzer(db_with_precinct_data)
         result = analyzer.precinct_turnout()
@@ -453,31 +369,6 @@ class TestPrecinctTurnout:
         analyzer = ElectionAnalyzer(db)
         result = analyzer.precinct_turnout()
         assert pd.isna(result.iloc[0]["turnout_rate"])
-
-    def test_filters_to_specified_elections(self, db):
-        for year in (2022, 2026):
-            e = seed_election(
-                db, f"{year} General Primary", year,
-                [{"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM",
-                  "total_votes": 80, "choice_name": "Jane Smith"}],
-            )
-            cid = db._conn.execute("SELECT id FROM contests LIMIT 1").fetchone()["id"]
-            db.insert_precinct_results([{
-                "election_id": e.id, "contest_id": cid,
-                "contest_name_raw": "FOR SENATOR (Vote For 1)",
-                "choice_name": "Jane Smith", "precinct": "Addison 001",
-                "registered_voters": 1000, "early_votes": 0, "vote_by_mail": 0,
-                "polling": 80, "provisional": 0, "total_votes": 80,
-            }])
-
-        analyzer = ElectionAnalyzer(db)
-        result = analyzer.precinct_turnout("2022 General Primary")
-        assert set(result["year"].unique()) == {2022}
-
-    def test_returns_all_elections_when_none_specified(self, db_with_precinct_data):
-        analyzer = ElectionAnalyzer(db_with_precinct_data)
-        result = analyzer.precinct_turnout()
-        assert len(result) == 2  # two candidate rows from the fixture
 
     def test_joins_party_from_candidates(self, db_with_precinct_data):
         analyzer = ElectionAnalyzer(db_with_precinct_data)

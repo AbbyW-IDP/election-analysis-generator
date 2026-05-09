@@ -467,12 +467,16 @@ class TestRunReports:
 
 
 class TestAnalysisRegistry:
-    def test_contains_all_expected_analyses(self):
-        assert "pct_change_by_party" in ANALYSIS_REGISTRY
-        assert "party_share" in ANALYSIS_REGISTRY
-        assert "turnout" in ANALYSIS_REGISTRY
-        assert "aggregated_csv" in ANALYSIS_REGISTRY
-        assert "precinct_turnout" in ANALYSIS_REGISTRY
+    # Consolidated from five separate assert lines into a parametrized test.
+    @pytest.mark.parametrize("name", [
+        "pct_change_by_party",
+        "party_share",
+        "turnout",
+        "aggregated_csv",
+        "precinct_turnout",
+    ])
+    def test_registry_contains(self, name):
+        assert name in ANALYSIS_REGISTRY
 
     def test_all_values_are_callable(self):
         for name, fn in ANALYSIS_REGISTRY.items():
@@ -509,13 +513,12 @@ class TestAnalysisRegistry:
         assert set(df["year"].unique()) == {2022}
 
     @pytest.mark.parametrize("fn, name", [
-        (_run_turnout,        "turnout"),
-        (_run_aggregated_csv, "aggregated_csv"),
+        (_run_turnout,          "turnout"),
+        (_run_aggregated_csv,   "aggregated_csv"),
         (_run_precinct_turnout, "precinct_turnout"),
     ])
     def test_comparable_only_true_warns(self, fn, name, db_with_elections):
         """comparable_only=True (the default) warns for analyses that ignore it."""
-        az = db_with_elections  # just need something with the right methods
         from election_analysis_generator.analysis import ElectionAnalyzer
         az = ElectionAnalyzer(db_with_elections)
         with warnings.catch_warnings(record=True) as w:
@@ -526,8 +529,8 @@ class TestAnalysisRegistry:
         assert name in str(w[0].message)
 
     @pytest.mark.parametrize("fn, name", [
-        (_run_turnout,        "turnout"),
-        (_run_aggregated_csv, "aggregated_csv"),
+        (_run_turnout,          "turnout"),
+        (_run_aggregated_csv,   "aggregated_csv"),
         (_run_precinct_turnout, "precinct_turnout"),
     ])
     def test_comparable_only_false_no_warning(self, fn, name, db_with_elections):
@@ -541,7 +544,7 @@ class TestAnalysisRegistry:
 
 
 # ---------------------------------------------------------------------------
-# precinct_turnout — load_reports_config accepts it
+# precinct_turnout -- load_reports_config accepts it
 # ---------------------------------------------------------------------------
 
 
@@ -581,7 +584,7 @@ sheet    = "precinct turnout"
 
 
 # ---------------------------------------------------------------------------
-# precinct_turnout — run_reports writes a sheet
+# precinct_turnout -- run_reports writes a sheet
 # ---------------------------------------------------------------------------
 
 
