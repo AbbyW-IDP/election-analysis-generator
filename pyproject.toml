@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "A tool for loading, normalising, and analysing partisan primary election results"
 requires-python = ">=3.14"
 dependencies = [
-    "pandas>=3.0",
+    "pandas>=3.0.3",
     "openpyxl>=3.1",
 ]
 
