@@ -3,6 +3,8 @@ Tests for election_analysis.reports
 """
 
 from pathlib import Path
+import re
+import warnings
 
 import pandas as pd
 import pytest
@@ -12,6 +14,9 @@ from src.election_analysis_generator.reports import (
     ReportConfig,
     load_reports_config,
     run_reports,
+    _run_turnout,
+    _run_aggregated_csv,
+    _run_precinct_turnout,
     ANALYSIS_REGISTRY,
 )
 from tests.conftest import seed_election
@@ -247,8 +252,8 @@ class TestRunReports:
                 analyses=[AnalysisEntry("turnout", "turnout", [])],
             )
         ]
-        run_reports(reports, db_with_elections, base_dir=tmp_path)
-        assert (tmp_path / "out.xlsx").exists()
+        written = run_reports(reports, db_with_elections, base_dir=tmp_path)
+        assert written[0].exists()
 
     def test_returns_list_of_paths_written(self, db_with_elections, tmp_path):
         reports = [
@@ -259,7 +264,9 @@ class TestRunReports:
             )
         ]
         written = run_reports(reports, db_with_elections, base_dir=tmp_path)
-        assert written == [tmp_path / "out.xlsx"]
+        assert len(written) == 1
+        assert written[0].parent == tmp_path
+        assert re.match(r"out_\d{4}-\d{2}-\d{2}_\d{4}\.xlsx", written[0].name)
 
     def test_turnout_sheet_written(self, db_with_elections, tmp_path):
         reports = [
@@ -269,8 +276,8 @@ class TestRunReports:
                 analyses=[AnalysisEntry("turnout", "turnout sheet", [])],
             )
         ]
-        run_reports(reports, db_with_elections, base_dir=tmp_path)
-        xl = pd.ExcelFile(tmp_path / "out.xlsx")
+        written = run_reports(reports, db_with_elections, base_dir=tmp_path)
+        xl = pd.ExcelFile(written[0])
         assert "turnout sheet" in xl.sheet_names
 
     def test_pct_change_sheet_written(self, db_with_elections, tmp_path):
@@ -287,8 +294,8 @@ class TestRunReports:
                 ],
             )
         ]
-        run_reports(reports, db_with_elections, base_dir=tmp_path)
-        xl = pd.ExcelFile(tmp_path / "out.xlsx")
+        written = run_reports(reports, db_with_elections, base_dir=tmp_path)
+        xl = pd.ExcelFile(written[0])
         assert "pct change" in xl.sheet_names
 
     def test_party_share_sheet_written(self, db_with_elections, tmp_path):
@@ -305,8 +312,8 @@ class TestRunReports:
                 ],
             )
         ]
-        run_reports(reports, db_with_elections, base_dir=tmp_path)
-        xl = pd.ExcelFile(tmp_path / "out.xlsx")
+        written = run_reports(reports, db_with_elections, base_dir=tmp_path)
+        xl = pd.ExcelFile(written[0])
         assert "party share" in xl.sheet_names
 
     def test_multiple_sheets_in_one_file(self, db_with_elections, tmp_path):
@@ -324,8 +331,8 @@ class TestRunReports:
                 ],
             )
         ]
-        run_reports(reports, db_with_elections, base_dir=tmp_path)
-        xl = pd.ExcelFile(tmp_path / "out.xlsx")
+        written = run_reports(reports, db_with_elections, base_dir=tmp_path)
+        xl = pd.ExcelFile(written[0])
         assert "turnout" in xl.sheet_names
         assert "pct change" in xl.sheet_names
 
@@ -338,9 +345,11 @@ class TestRunReports:
                 "b", Path("b.xlsx"), [AnalysisEntry("turnout", "turnout", [])]
             ),
         ]
-        run_reports(reports, db_with_elections, base_dir=tmp_path)
-        assert (tmp_path / "a.xlsx").exists()
-        assert (tmp_path / "b.xlsx").exists()
+        written = run_reports(reports, db_with_elections, base_dir=tmp_path)
+        assert len(written) == 2
+        assert all(p.exists() for p in written)
+        assert written[0].stem.startswith("a_")
+        assert written[1].stem.startswith("b_")
 
     def test_skips_analysis_with_wrong_election_count(
         self, db_with_elections, tmp_path, capsys
@@ -358,8 +367,8 @@ class TestRunReports:
                 ],
             )
         ]
-        run_reports(reports, db_with_elections, base_dir=tmp_path)
-        xl = pd.ExcelFile(tmp_path / "out.xlsx")
+        written = run_reports(reports, db_with_elections, base_dir=tmp_path)
+        xl = pd.ExcelFile(written[0])
         assert "bad sheet" not in xl.sheet_names
         assert "turnout" in xl.sheet_names
         captured = capsys.readouterr()
@@ -375,8 +384,8 @@ class TestRunReports:
                 ],
             )
         ]
-        run_reports(reports, db_with_elections, base_dir=tmp_path)
-        df = pd.read_excel(tmp_path / "out.xlsx", sheet_name="turnout", index_col=0)
+        written = run_reports(reports, db_with_elections, base_dir=tmp_path)
+        df = pd.read_excel(written[0], sheet_name="turnout", index_col=0)
         assert "2022 General Primary" in df.columns
         assert "2026 General Primary" not in df.columns
 
@@ -447,8 +456,8 @@ class TestRunReports:
                 ],
             )
         ]
-        run_reports(reports, db, base_dir=tmp_path)
-        df = pd.read_excel(tmp_path / "out.xlsx", sheet_name="all contests")
+        written = run_reports(reports, db, base_dir=tmp_path)
+        df = pd.read_excel(written[0], sheet_name="all contests")
         assert "FOR COUNTY CLERK" in df["contest"].values
 
 
@@ -458,12 +467,16 @@ class TestRunReports:
 
 
 class TestAnalysisRegistry:
-    def test_contains_all_expected_analyses(self):
-        assert "pct_change_by_party" in ANALYSIS_REGISTRY
-        assert "party_share" in ANALYSIS_REGISTRY
-        assert "turnout" in ANALYSIS_REGISTRY
-        assert "aggregated_csv" in ANALYSIS_REGISTRY
-        assert "precinct_turnout" in ANALYSIS_REGISTRY
+    # Consolidated from five separate assert lines into a parametrized test.
+    @pytest.mark.parametrize("name", [
+        "pct_change_by_party",
+        "party_share",
+        "turnout",
+        "aggregated_csv",
+        "precinct_turnout",
+    ])
+    def test_registry_contains(self, name):
+        assert name in ANALYSIS_REGISTRY
 
     def test_all_values_are_callable(self):
         for name, fn in ANALYSIS_REGISTRY.items():
@@ -477,8 +490,8 @@ class TestAnalysisRegistry:
                 analyses=[AnalysisEntry("aggregated_csv", "raw data", [])],
             )
         ]
-        run_reports(reports, db_with_elections, base_dir=tmp_path)
-        xl = pd.ExcelFile(tmp_path / "out.xlsx")
+        written = run_reports(reports, db_with_elections, base_dir=tmp_path)
+        xl = pd.ExcelFile(written[0])
         assert "raw data" in xl.sheet_names
 
     def test_aggregated_csv_with_elections_filter(self, db_with_elections, tmp_path):
@@ -495,13 +508,43 @@ class TestAnalysisRegistry:
                 ],
             )
         ]
-        run_reports(reports, db_with_elections, base_dir=tmp_path)
-        df = pd.read_excel(tmp_path / "out.xlsx", sheet_name="raw data")
+        written = run_reports(reports, db_with_elections, base_dir=tmp_path)
+        df = pd.read_excel(written[0], sheet_name="raw data")
         assert set(df["year"].unique()) == {2022}
+
+    @pytest.mark.parametrize("fn, name", [
+        (_run_turnout,          "turnout"),
+        (_run_aggregated_csv,   "aggregated_csv"),
+        (_run_precinct_turnout, "precinct_turnout"),
+    ])
+    def test_comparable_only_true_warns(self, fn, name, db_with_elections):
+        """comparable_only=True (the default) warns for analyses that ignore it."""
+        from election_analysis_generator.analysis import ElectionAnalyzer
+        az = ElectionAnalyzer(db_with_elections)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            fn(az, [], comparable_only=True)
+        assert len(w) == 1, f"Expected 1 warning for {name}, got {len(w)}"
+        assert issubclass(w[0].category, UserWarning)
+        assert name in str(w[0].message)
+
+    @pytest.mark.parametrize("fn, name", [
+        (_run_turnout,          "turnout"),
+        (_run_aggregated_csv,   "aggregated_csv"),
+        (_run_precinct_turnout, "precinct_turnout"),
+    ])
+    def test_comparable_only_false_no_warning(self, fn, name, db_with_elections):
+        """comparable_only=False suppresses the warning — user has acknowledged the setting."""
+        from election_analysis_generator.analysis import ElectionAnalyzer
+        az = ElectionAnalyzer(db_with_elections)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            fn(az, [], comparable_only=False)
+        assert len(w) == 0, f"Expected no warnings for {name} with comparable_only=False, got {len(w)}"
 
 
 # ---------------------------------------------------------------------------
-# precinct_turnout — load_reports_config accepts it
+# precinct_turnout -- load_reports_config accepts it
 # ---------------------------------------------------------------------------
 
 
@@ -541,7 +584,7 @@ sheet    = "precinct turnout"
 
 
 # ---------------------------------------------------------------------------
-# precinct_turnout — run_reports writes a sheet
+# precinct_turnout -- run_reports writes a sheet
 # ---------------------------------------------------------------------------
 
 
@@ -591,8 +634,8 @@ class TestRunReportsPrecinctTurnout:
                 analyses=[AnalysisEntry("precinct_turnout", "precinct turnout", [])],
             )
         ]
-        run_reports(reports, db, base_dir=tmp_path)
-        xl = pd.ExcelFile(tmp_path / "out.xlsx")
+        written = run_reports(reports, db, base_dir=tmp_path)
+        xl = pd.ExcelFile(written[0])
         assert "precinct turnout" in xl.sheet_names
 
     def test_precinct_turnout_sheet_has_expected_columns(self, db, tmp_path):
@@ -604,8 +647,8 @@ class TestRunReportsPrecinctTurnout:
                 analyses=[AnalysisEntry("precinct_turnout", "precinct turnout", [])],
             )
         ]
-        run_reports(reports, db, base_dir=tmp_path)
-        df = pd.read_excel(tmp_path / "out.xlsx", sheet_name="precinct turnout")
+        written = run_reports(reports, db, base_dir=tmp_path)
+        df = pd.read_excel(written[0], sheet_name="precinct turnout")
         for col in ["election", "year", "contest", "party", "candidate", "precinct",
                     "total_votes", "turnout_rate"]:
             assert col in df.columns, f"Missing column: {col!r}"
@@ -659,8 +702,8 @@ class TestRunReportsPrecinctTurnout:
                 ],
             )
         ]
-        run_reports(reports, db, base_dir=tmp_path)
-        df = pd.read_excel(tmp_path / "out.xlsx", sheet_name="precinct turnout")
+        written = run_reports(reports, db, base_dir=tmp_path)
+        df = pd.read_excel(written[0], sheet_name="precinct turnout")
         assert set(df["year"].unique()) == {2026}
 
     def test_precinct_turnout_returns_all_elections_when_none_specified(
@@ -674,8 +717,8 @@ class TestRunReportsPrecinctTurnout:
                 analyses=[AnalysisEntry("precinct_turnout", "precinct turnout", [])],
             )
         ]
-        run_reports(reports, db, base_dir=tmp_path)
-        df = pd.read_excel(tmp_path / "out.xlsx", sheet_name="precinct turnout")
+        written = run_reports(reports, db, base_dir=tmp_path)
+        df = pd.read_excel(written[0], sheet_name="precinct turnout")
         assert 2026 in df["year"].values
 
     def test_precinct_turnout_empty_sheet_when_no_detail_data(
@@ -689,8 +732,8 @@ class TestRunReportsPrecinctTurnout:
                 analyses=[AnalysisEntry("precinct_turnout", "precinct turnout", [])],
             )
         ]
-        run_reports(reports, db_with_elections, base_dir=tmp_path)
-        df = pd.read_excel(tmp_path / "out.xlsx", sheet_name="precinct turnout")
+        written = run_reports(reports, db_with_elections, base_dir=tmp_path)
+        df = pd.read_excel(written[0], sheet_name="precinct turnout")
         assert len(df) == 0
 
     def test_precinct_turnout_in_mixed_report(self, db, tmp_path):
@@ -706,7 +749,7 @@ class TestRunReportsPrecinctTurnout:
                 ],
             )
         ]
-        run_reports(reports, db, base_dir=tmp_path)
-        xl = pd.ExcelFile(tmp_path / "out.xlsx")
+        written = run_reports(reports, db, base_dir=tmp_path)
+        xl = pd.ExcelFile(written[0])
         assert "turnout" in xl.sheet_names
         assert "precinct turnout" in xl.sheet_names

@@ -105,15 +105,15 @@ class ElectionAnalyzer:
                 e.year,
                 e.election_date,
                 co.contest_name,
-                ca.party,
-                SUM(ca.total_votes) AS party_total
-            FROM candidates ca
-            JOIN contests  co ON ca.contest_id  = co.id
-            JOIN elections e  ON ca.election_id = e.id
+                cr.party,
+                SUM(cr.total_votes) AS party_total
+            FROM contest_results cr
+            JOIN contests  co ON cr.contest_id  = co.id
+            JOIN elections e  ON cr.election_id = e.id
             WHERE e.id IN ({_placeholders(len(election_ids))})
-              AND ca.party IN ({_placeholders(len(parties))})
+              AND cr.party IN ({_placeholders(len(parties))})
               AND co.is_legislation = 0
-            GROUP BY e.id, co.contest_name, ca.party
+            GROUP BY e.id, co.contest_name, cr.party
             """,  # nosec B608 - placeholders only, values passed as parameters
             list(election_ids) + list(parties),
         )
@@ -131,7 +131,7 @@ class ElectionAnalyzer:
         """
         required = len(election_ids) * len(parties)
 
-        filtered = (
+        raw = (
             totals[
                 totals["election_id"].isin(election_ids)
                 & totals["party"].isin(parties)
@@ -140,9 +140,7 @@ class ElectionAnalyzer:
             .groupby("contest_name")
             .filter(lambda g: len(g) == required)
         )
-
-        if filtered is None:  # check so pyright doesn't yell at us
-            return set()
+        filtered: pd.DataFrame = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame(raw)
 
         contest_names = filtered.loc[:, "contest_name"].astype(str).tolist()
         return set(contest_names)
@@ -165,11 +163,15 @@ class ElectionAnalyzer:
         Args:
             election_a:      The baseline election (name, id, or Election).
             election_b:      The comparison election (name, id, or Election).
+                             Must be a different election from election_a.
             parties:         Parties to include. Default: DEM and REP.
             comparable_only: If True (default), include only contests where
                              both parties have votes in both elections.
                              If False, include all contests present in either
                              election, with NaN where data is missing.
+
+        Raises:
+            ValueError: if election_a and election_b resolve to the same election.
 
         Returns:
             DataFrame with columns:
@@ -181,6 +183,11 @@ class ElectionAnalyzer:
         a, b = _resolve_elections(self._db, [election_a, election_b])
         if a.id is None or b.id is None:
             raise RuntimeError("Resolved election has no id")
+        if a.id == b.id:
+            raise ValueError(
+                f"election_a and election_b must be different elections; "
+                f"both resolved to {a.name!r} (id={a.id})."
+            )
         election_ids_ab: list[int] = [a.id, b.id]
         totals = self._get_party_totals(election_ids_ab, parties)
 
@@ -220,14 +227,9 @@ class ElectionAnalyzer:
                 if col in pivot.columns:
                     ordered.append(col)
 
-        result = pivot[ordered].copy()
-        if not isinstance(result, pd.DataFrame):
-            raise TypeError(f"Expected DataFrame after column selection, got {type(result).__name__}")
+        raw_result = pivot[ordered].copy()
+        result: pd.DataFrame = raw_result if isinstance(raw_result, pd.DataFrame) else pd.DataFrame(raw_result)
         return result.rename(columns={"contest_name": "contest"})
-
-    # ------------------------------------------------------------------
-    # Analysis: party share of total votes
-    # ------------------------------------------------------------------
 
     def party_share(
         self,
@@ -242,12 +244,17 @@ class ElectionAnalyzer:
         Accepts any number of elections (2+).
 
         Args:
-            *elections:      Election names, ids, or Election objects.
+            *elections:      Election names, ids, or Election objects. Must be
+                             2 or more distinct elections (no duplicates).
             parties:         Parties to include. Default: DEM and REP.
             comparable_only: If True (default), include only contests where
                              both parties have votes in all elections.
                              If False, include all contests present in any
                              election, with NaN where data is missing.
+
+        Raises:
+            ValueError: if fewer than 2 elections are provided, or if any
+                        election appears more than once.
 
         Returns:
             DataFrame with columns:
@@ -264,6 +271,17 @@ class ElectionAnalyzer:
         resolved = _resolve_elections(self._db, list(elections))
         election_ids: list[int] = [e.id for e in resolved if e.id is not None]
 
+        seen: set[int] = set()
+        for e in resolved:
+            if e.id is None:
+                continue
+            if e.id in seen:
+                raise ValueError(
+                    f"Duplicate election in party_share arguments: {e.name!r} "
+                    f"(id={e.id}) appears more than once."
+                )
+            seen.add(e.id)
+
         totals = self._get_party_totals(election_ids, parties)
 
         if comparable_only:
@@ -274,24 +292,18 @@ class ElectionAnalyzer:
         if not contests:
             return pd.DataFrame(columns=["contest"])
 
-        # All-party totals per contest per election for denominator
-        all_totals = self._db.query(
-            f"""
-            SELECT e.id AS election_id, e.name AS election_name,
-                   co.contest_name,
-                   SUM(ca.total_votes) AS contest_total
-            FROM candidates ca
-            JOIN contests  co ON ca.contest_id  = co.id
-            JOIN elections e  ON ca.election_id = e.id
-            WHERE e.id IN ({_placeholders(len(election_ids))})
-              AND co.is_legislation = 0
-            GROUP BY e.id, co.contest_name
-            """,    # nosec B608 - placeholders only, values passed as parameters
-            election_ids,
-        )
-
         df = totals[totals["contest_name"].isin(list(contests))].copy()
-        df = df.merge(all_totals, on=["election_id", "election_name", "contest_name"])
+
+        # Derive the contest-level denominator from the already-fetched totals
+        # by summing party_total across all parties per (election, contest).
+        # This avoids a second near-identical SQL round-trip.
+        raw_totals = (
+            df.groupby(["election_id", "election_name", "contest_name"], as_index=False)["party_total"]
+            .sum()
+        )
+        contest_totals: pd.DataFrame = raw_totals if isinstance(raw_totals, pd.DataFrame) else pd.DataFrame(raw_totals)
+        contest_totals = contest_totals.rename(columns={"party_total": "contest_total"})
+        df = df.merge(contest_totals, on=["election_id", "election_name", "contest_name"])
         df["vote_share"] = df["party_total"] / df["contest_total"]
 
         pivot = df.pivot_table(
@@ -323,9 +335,8 @@ class ElectionAnalyzer:
             if pp_col in pivot.columns:
                 ordered.append(pp_col)
 
-        result = pivot[ordered].copy()
-        if not isinstance(result, pd.DataFrame):
-            raise TypeError(f"Expected DataFrame after column selection, got {type(result).__name__}")
+        raw_result = pivot[ordered].copy()
+        result: pd.DataFrame = raw_result if isinstance(raw_result, pd.DataFrame) else pd.DataFrame(raw_result)
         return result.rename(columns={"contest_name": "contest"})
 
     # ------------------------------------------------------------------
@@ -402,26 +413,26 @@ class ElectionAnalyzer:
         df = self._db.query(
             f"""
             SELECT
-                ca.line_number          AS "line number",
-                ca.contest_name_raw     AS "contest name",
-                ca.choice_name          AS "choice name",
-                ca.party                AS "party",
-                ca.total_votes          AS "total votes",
-                ca.percent_of_votes     AS "percent of votes",
-                ca.registered_voters    AS "registered voters",
-                ca.ballots_cast         AS "ballots cast",
-                ca.num_precinct_total   AS "num precinct total",
-                ca.num_precinct_rptg    AS "num precinct rptg",
-                ca.over_votes           AS "over votes",
-                ca.under_votes          AS "under votes",
-                ca.year                 AS "year",
+                cr.line_number          AS "line number",
+                cr.contest_name_raw     AS "contest name",
+                cr.choice_name          AS "choice name",
+                cr.party                AS "party",
+                cr.total_votes          AS "total votes",
+                cr.percent_of_votes     AS "percent of votes",
+                cr.registered_voters    AS "registered voters",
+                cr.ballots_cast         AS "ballots cast",
+                cr.num_precinct_total   AS "num precinct total",
+                cr.num_precinct_rptg    AS "num precinct rptg",
+                cr.over_votes           AS "over votes",
+                cr.under_votes          AS "under votes",
+                cr.year                 AS "year",
                 e.category              AS "category",
-                ca.contest_name         AS "contest name (normalized)",
-                ca.election_name        AS "election name"
-            FROM candidates ca
-            JOIN elections e ON ca.election_id = e.id
+                cr.contest_name         AS "contest name (normalized)",
+                cr.election_name        AS "election name"
+            FROM contest_results cr
+            JOIN elections e ON cr.election_id = e.id
             WHERE e.id IN ({_placeholders(len(election_ids))})
-            ORDER BY ca.year, ca.contest_name, ca.party, ca.choice_name
+            ORDER BY cr.year, cr.contest_name, cr.party, cr.choice_name
             """,  # nosec B608 - placeholders only, values passed as parameters
             election_ids,
         )
@@ -444,7 +455,7 @@ class ElectionAnalyzer:
         precinct row. Rows where registered_voters is NULL or zero are
         included but their turnout_rate is NaN.
 
-        Party is joined from the candidates (summary) table on
+        Party is joined from the contest_results (summary) table on
         (election_id, contest_id, choice_name) — no party column is stored
         in candidate_precinct_results itself.
 
@@ -478,7 +489,7 @@ class ElectionAnalyzer:
                 e.name                      AS election,
                 e.year,
                 co.contest_name             AS contest,
-                ca.party,
+                cr.party,
                 pr.choice_name              AS candidate,
                 pr.precinct,
                 pr.registered_voters,
@@ -490,13 +501,13 @@ class ElectionAnalyzer:
             FROM candidate_precinct_results pr
             JOIN elections e   ON pr.election_id = e.id
             JOIN contests  co  ON pr.contest_id  = co.id
-            LEFT JOIN candidates ca
-                ON  ca.election_id = pr.election_id
-                AND ca.contest_id  = pr.contest_id
-                AND ca.choice_name = pr.choice_name
+            LEFT JOIN contest_results cr
+                ON  cr.election_id = pr.election_id
+                AND cr.contest_id  = pr.contest_id
+                AND cr.choice_name = pr.choice_name
             WHERE e.id IN ({_placeholders(len(election_ids))})
               AND co.is_legislation = 0
-            ORDER BY e.year, e.name, co.contest_name, ca.party,
+            ORDER BY e.year, e.name, co.contest_name, cr.party,
                      pr.choice_name, pr.precinct
             """,  # nosec B608 — placeholders only, values passed as params
             election_ids,
@@ -505,11 +516,7 @@ class ElectionAnalyzer:
         if df.empty:
             return df
 
-        df["turnout_rate"] = df.apply(
-            lambda r: r["total_votes"] / r["registered_voters"]
-            if r["registered_voters"] and r["registered_voters"] > 0
-            else None,
-            axis=1,
-        )
+        rv = df["registered_voters"].replace(0, pd.NA)
+        df["turnout_rate"] = df["total_votes"] / rv
 
         return df

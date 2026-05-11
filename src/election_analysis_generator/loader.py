@@ -28,8 +28,9 @@ from __future__ import annotations
 import re
 from datetime import date, datetime
 from pathlib import Path
-from typing import TypeVar
+from typing import Any
 
+import openpyxl
 import pandas as pd
 
 from .db import ElectionDatabase
@@ -40,7 +41,7 @@ DEFAULT_SOURCES_DIR = Path("sources")
 DEFAULT_CONFIG_PATH = Path("elections.csv")
 
 VALID_CATEGORIES = frozenset(
-    {"Consolidated", "Consolidated Primary", "General", "General Primary"}
+    {"consolidated", "consolidated primary", "general", "general primary"}
 )
 VALID_ELECTION_TYPES = frozenset({"presidential", "midterm", "off-year"})
 
@@ -72,15 +73,15 @@ _NO_CANDIDATE_MARKERS = frozenset(
 # Required columns in elections.csv.
 _CONFIG_REQUIRED = frozenset({"year", "election_date", "summary_file"})
 
-# Optional columns and their types. Values are (coerce_fn, nullable).
+# Optional columns and their coercion functions.
 # Absent columns and blank cells both produce None.
-_CONFIG_OPTIONAL: dict[str, tuple] = {
-    "results_last_updated": (str,   True),
-    "category":             (str,   True),
-    "election_type":        (str,   True),
-    "registered_voters":    (int,   True),
-    "ballots_cast":         (int,   True),
-    "detail_file":          (str,   True),
+_CONFIG_OPTIONAL: dict[str, type] = {
+    "results_last_updated": str,
+    "category":             str,
+    "election_type":        str,
+    "registered_voters":    int,
+    "ballots_cast":         int,
+    "detail_file":          str,
 }
 
 
@@ -156,12 +157,10 @@ def _year_from_filename(filename: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
-_T = TypeVar("_T")
-
-def _coerce_config_value(value: object, coerce_fn, nullable: bool) -> _T | None:
+def _coerce_config_value(value: object, coerce_fn: type) -> Any:
     """Coerce a single config cell value to the target type.
 
-    Blank strings and pandas NA/NaN become None for nullable fields.
+    None, pandas NA/NaN, and blank/whitespace strings all return None.
     """
     # Treat pandas NA, float NaN, and empty/whitespace strings as missing
     if value is None:
@@ -172,8 +171,6 @@ def _coerce_config_value(value: object, coerce_fn, nullable: bool) -> _T | None:
     except (TypeError, ValueError):
         pass
     if isinstance(value, str) and not value.strip():
-        return None
-    if nullable and value is None:
         return None
     try:
         return coerce_fn(value)
@@ -186,12 +183,12 @@ def _validate_config_entry(entry: dict, row_index: int) -> None:
     category = entry.get("category")
     election_type = entry.get("election_type")
 
-    if category is not None and category.title() not in VALID_CATEGORIES:
+    if category is not None and category.strip().lower() not in VALID_CATEGORIES:
         raise ValueError(
             f"Row {row_index}: invalid category {category!r}. "
             f"Must be one of: {sorted(VALID_CATEGORIES)}"
         )
-    if election_type is not None and election_type.lower() not in VALID_ELECTION_TYPES:
+    if election_type is not None and election_type.strip().lower() not in VALID_ELECTION_TYPES:
         raise ValueError(
             f"Row {row_index}: invalid election_type {election_type!r}. "
             f"Must be one of: {sorted(VALID_ELECTION_TYPES)}"
@@ -254,7 +251,7 @@ def load_elections_config(config_path: Path = DEFAULT_CONFIG_PATH) -> list[dict]
     entries = []
     for row_index, row in df.iterrows():
         year_raw = row.get("year", "")
-        year_val = _coerce_config_value(year_raw, int, False)
+        year_val = _coerce_config_value(year_raw, int)
         if year_val is None:
             raise ValueError(
                 f"Row {int(row_index) + 1}: 'year' is required and must be a valid integer."  # type: ignore[arg-type]
@@ -272,9 +269,9 @@ def load_elections_config(config_path: Path = DEFAULT_CONFIG_PATH) -> list[dict]
             "summary_file":  str(row["summary_file"]).strip(),
         }
 
-        for col, (coerce_fn, nullable) in _CONFIG_OPTIONAL.items():
+        for col, coerce_fn in _CONFIG_OPTIONAL.items():
             raw = row.get(col, "")
-            entry[col] = _coerce_config_value(raw, coerce_fn, nullable)
+            entry[col] = _coerce_config_value(raw, coerce_fn)
 
         _validate_config_entry(entry, int(row_index) + 1)  # type: ignore[arg-type]
 
@@ -402,11 +399,10 @@ class LoadSummary(_LoaderBase):
             registered_voters=config.get("registered_voters"),
         )
 
-        election, new_names = self._db.insert_election(election, df)
+        election, new_names = self._db.insert_election_with_file(election, df, path.name)
 
         if election.id is None:
             raise RuntimeError("insert_election did not return an election id")
-        self._db.register_file(path.name, election.id)
         return election, new_names
 
 
@@ -431,13 +427,12 @@ class LoadPrecinctDetail(_LoaderBase):
         self,
         sources_dir: Path = DEFAULT_SOURCES_DIR,
         config_path: Path = DEFAULT_CONFIG_PATH,
-    ) -> dict[str, tuple[Election, int]]:
+    ) -> dict[str, Election]:
         """Scan elections.csv for elections whose detail_file hasn't been
         loaded yet and load them.
 
         Returns:
-            Dict mapping detail filename → (Election, rows_inserted)
-            for each newly loaded file.
+            Dict mapping detail filename → Election for each newly loaded file.
         """
         if not sources_dir.exists():
             raise FileNotFoundError(f"Sources directory not found: {sources_dir}")
@@ -446,7 +441,7 @@ class LoadPrecinctDetail(_LoaderBase):
         if not configs:
             return {}
 
-        results: dict[str, tuple[Election, int]] = {}
+        results: dict[str, Election] = {}
         for entry in configs:
             detail_file = entry.get("detail_file")
             if not detail_file:
@@ -467,12 +462,12 @@ class LoadPrecinctDetail(_LoaderBase):
                 print(f"  Skipping {detail_file}: file not found in {sources_dir}")
                 continue
 
-            rows_inserted = self.load_detail_excel(path, election)
-            results[detail_file] = (election, rows_inserted)
+            self.load_detail_excel(path, election)
+            results[detail_file] = election
 
         return results
 
-    def load_detail_excel(self, path: Path, election: Election) -> int:
+    def load_detail_excel(self, path: Path, election: Election) -> None:
         """Parse the detail Excel workbook at *path* and insert precinct-level
         results for *election*.
 
@@ -480,9 +475,6 @@ class LoadPrecinctDetail(_LoaderBase):
             path:     Path to the .xlsx detail file.
             election: The Election this file belongs to. Must already have
                       a database id (i.e. the summary CSV was loaded first).
-
-        Returns:
-            Total number of rows inserted.
         """
         if election.id is None:
             raise ValueError(
@@ -492,20 +484,14 @@ class LoadPrecinctDetail(_LoaderBase):
         if not path.exists():
             raise FileNotFoundError(f"Detail file not found: {path}")
 
-        import openpyxl
-
-        wb = openpyxl.load_workbook(path, read_only=False, data_only=True)
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
         contest_id_map = self._build_contest_id_map()
 
-        total_inserted = 0
-        for sheet_name in wb.sheetnames:
-            ws = wb[sheet_name]
+        for ws in wb.worksheets:
             rows = list(ws.iter_rows(values_only=True))
-            inserted = self._process_sheet(rows, election.id, contest_id_map, sheet_name)
-            total_inserted += inserted
+            self._process_sheet(rows, election.id, contest_id_map, ws.title)
 
         self._db.register_file(path.name, election.id)
-        return total_inserted
 
     def _build_contest_id_map(self) -> dict[str, int]:
         df = self._db.query("SELECT id, contest_name FROM contests")
@@ -517,18 +503,18 @@ class LoadPrecinctDetail(_LoaderBase):
         election_id: int,
         contest_id_map: dict[str, int],
         sheet_name: str,
-    ) -> int:
+    ) -> None:
         if len(rows) < 4:
-            return 0
+            return
 
         raw_contest = str(rows[0][0] or "").strip()
         if not raw_contest:
-            return 0
+            return
 
         normalized_contest = normalize_contest_name(raw_contest)
         contest_id = contest_id_map.get(normalized_contest)
         if contest_id is None:
-            return 0
+            return
 
         candidate_names: list[str] = []
         candidate_start_cols: list[int] = []
@@ -546,7 +532,7 @@ class LoadPrecinctDetail(_LoaderBase):
             col += 5
 
         if not candidate_names:
-            return 0
+            return
 
         precinct_rows_to_insert: list[dict] = []
         for data_row in rows[3:]:
@@ -587,9 +573,9 @@ class LoadPrecinctDetail(_LoaderBase):
                 )
 
         if not precinct_rows_to_insert:
-            return 0
+            return
 
-        return self._db.insert_precinct_results(precinct_rows_to_insert)
+        self._db.insert_precinct_results(precinct_rows_to_insert)
 
 
 def _int_or_zero(value) -> int:

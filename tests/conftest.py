@@ -73,6 +73,9 @@ def seed_election(
     Insert an Election with candidate rows directly into the database.
     Contest names are pre-registered so they aren't flagged as unknown.
 
+    Uses insert_election_with_file() — the same method the production loader
+    calls — so the test helper and loader are guaranteed to stay in sync.
+
     ballots_cast and registered_voters are election-wide totals (from
     elections.toml in production). Per-contest figures live on candidate rows.
     """
@@ -97,7 +100,6 @@ def seed_election(
         ballots_cast=ballots_cast,
         registered_voters=registered_voters,
     )
-    election, _ = db.insert_election(election, df)
+    election, _ = db.insert_election_with_file(election, df, election.summary_file)
     assert election.id is not None, "election must have an id after insert"  # nosec B101
-    db.register_file(election.summary_file, election.id)
     return election

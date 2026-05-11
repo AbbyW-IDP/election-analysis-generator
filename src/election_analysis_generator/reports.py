@@ -40,8 +40,12 @@ Supported analysis names
 ------------------------
 - ``pct_change_by_party``   requires exactly 2 elections
 - ``party_share``           requires 2+ elections
-- ``turnout``               elections optional (defaults to all)
-- ``aggregated_csv``        elections optional (defaults to all)
+- ``turnout``               elections optional (defaults to all); comparable_only ignored —
+                            set ``comparable_only = false`` to suppress the warning
+- ``aggregated_csv``        elections optional (defaults to all); comparable_only ignored —
+                            set ``comparable_only = false`` to suppress the warning
+- ``precinct_turnout``      elections optional (defaults to all); comparable_only ignored —
+                            set ``comparable_only = false`` to suppress the warning
 
 Adding future analyses
 ----------------------
@@ -54,8 +58,10 @@ from __future__ import annotations
 
 import tomllib
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Callable
+import warnings
 
 import pandas as pd
 
@@ -158,7 +164,8 @@ def run_reports(
     written = []
 
     for report in reports:
-        output_path = base_dir / report.output
+        ts = datetime.now().strftime("%Y-%m-%d_%H%M")
+        output_path = base_dir / report.output.with_stem(f"{report.output.stem}_{ts}")
         print(f"\nReport: {report.key!r} → {output_path}")
 
         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
@@ -222,7 +229,13 @@ def _run_turnout(
     elections: list[str],
     comparable_only: bool = True,
 ) -> pd.DataFrame:
-    return analyzer.turnout(*elections)  # comparable_only is not applicable to turnout
+    if comparable_only:
+        warnings.warn(
+            "comparable_only has no effect on turnout — "
+            "all elections are always included. Set comparable_only = false to suppress this warning.",
+            stacklevel=2,
+        )
+    return analyzer.turnout(*elections)
 
 
 def _run_aggregated_csv(
@@ -230,7 +243,13 @@ def _run_aggregated_csv(
     elections: list[str],
     comparable_only: bool = True,
 ) -> pd.DataFrame:
-    return analyzer.aggregated_csv(*elections)  # comparable_only not applicable
+    if comparable_only:
+        warnings.warn(
+            "comparable_only has no effect on aggregated_csv — "
+            "all contests are always included. Set comparable_only = false to suppress this warning.",
+            stacklevel=2,
+        )
+    return analyzer.aggregated_csv(*elections)
 
 
 def _run_precinct_turnout(
@@ -238,7 +257,13 @@ def _run_precinct_turnout(
     elections: list[str],
     comparable_only: bool = True,
 ) -> pd.DataFrame:
-    return analyzer.precinct_turnout(*elections)  # comparable_only not applicable
+    if comparable_only:
+        warnings.warn(
+            "comparable_only has no effect on precinct_turnout — "
+            "all contests are always included. Set comparable_only = false to suppress this warning.",
+            stacklevel=2,
+        )
+    return analyzer.precinct_turnout(*elections)
 
 
 ANALYSIS_REGISTRY: dict[

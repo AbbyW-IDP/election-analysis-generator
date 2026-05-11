@@ -14,39 +14,54 @@ import pandas as pd
 # Contest name normalization
 # ---------------------------------------------------------------------------
 
-# Ordinal words that appear in contest names (add more as needed).
-# Keys are lowercase; values are their spelled-out equivalents.
+# Ordinal suffix → word-form mapping, generated for 1–99.
+# Keys are lowercase (e.g. "13th"); values are their spelled-out equivalents
+# (e.g. "thirteenth").  The regex below uses re.IGNORECASE so "13TH", "13th",
+# and "13Th" all normalize identically — no manual entries needed for
+# capitalisation variants.
+#
+# Coverage up to 99 handles every Illinois legislative and congressional
+# district that currently exists.  If a district above 99 ever appears, extend
+# _ORDINAL_CEILING.
+
+_ORDINAL_CEILING = 99
+
+_ONES = [
+    "", "first", "second", "third", "fourth", "fifth",
+    "sixth", "seventh", "eighth", "ninth", "tenth",
+    "eleventh", "twelfth", "thirteenth", "fourteenth", "fifteenth",
+    "sixteenth", "seventeenth", "eighteenth", "nineteenth",
+]
+_TENS = [
+    "", "", "twenty", "thirty", "forty", "fifty",
+    "sixty", "seventy", "eighty", "ninety",
+]
+
+
+def _ordinal_word(n: int) -> str:
+    """Return the ordinal word for integer n (1–99)."""
+    if n < 20:
+        return _ONES[n]
+    tens, ones = divmod(n, 10)
+    if ones == 0:
+        # e.g. 20 → "twentieth", 30 → "thirtieth"
+        base = _TENS[tens]
+        if base.endswith("y"):
+            return base[:-1] + "ieth"
+        return base + "th"
+    return f"{_TENS[tens]}-{_ONES[ones]}"
+
+
+def _ordinal_suffix(n: int) -> str:
+    """Return the numeric ordinal suffix for n (e.g. 1 → '1st', 13 → '13th')."""
+    if 11 <= (n % 100) <= 13:
+        return f"{n}th"
+    return f"{n}{['th','st','nd','rd','th'][min(n % 10, 4)]}"
+
+
 ORDINAL_MAP: dict[str, str] = {
-    "1st": "first",
-    "2nd": "second",
-    "3rd": "third",
-    "4th": "fourth",
-    "5th": "fifth",
-    "6th": "sixth",
-    "7th": "seventh",
-    "8th": "eighth",
-    "9th": "ninth",
-    "10th": "tenth",
-    "11th": "eleventh",
-    "12th": "twelfth",
-    "21st": "twenty-first",
-    "22nd": "twenty-second",
-    "23rd": "twenty-third",
-    "24th": "twenty-fourth",
-    "39th": "thirty-ninth",
-    "41st": "forty-first",
-    "42nd": "forty-second",
-    "45th": "forty-fifth",
-    "48th": "forty-eighth",
-    "49th": "forty-ninth",
-    "50th": "fiftieth",
-    "56th": "fifty-sixth",
-    "65th": "sixty-fifth",
-    "77th": "seventy-seventh",
-    "81st": "eighty-first",
-    "82nd": "eighty-second",
-    "84th": "eighty-fourth",
-    "85th": "eighty-fifth",
+    _ordinal_suffix(n): _ordinal_word(n)
+    for n in range(1, _ORDINAL_CEILING + 1)
 }
 
 _ORDINAL_PATTERN = re.compile(

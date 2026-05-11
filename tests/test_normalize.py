@@ -4,6 +4,9 @@ Tests for election_analysis.normalize
 
 import pytest
 from src.election_analysis_generator.normalize import (
+    ORDINAL_MAP,
+    _ordinal_suffix,
+    _ordinal_word,
     normalize_contest_name,
     normalize_candidate_name,
     normalize_party,
@@ -83,16 +86,95 @@ class TestNormalizeContestName:
         pytest.param(
             "FOR REPRESENTATIVE IN THE GENERAL ASSEMBLY 81ST REPRESENTATIVE DISTRICT (Vote For 1)",
             "FOR REPRESENTATIVE IN THE GENERAL ASSEMBLY EIGHTY-FIRST REPRESENTATIVE DISTRICT",
-            id="81st",
+            id="81st_upper",
+        ),
+        pytest.param(
+            "FOR REPRESENTATIVE IN THE GENERAL ASSEMBLY 81st REPRESENTATIVE DISTRICT (Vote For 1)",
+            "FOR REPRESENTATIVE IN THE GENERAL ASSEMBLY EIGHTY-FIRST REPRESENTATIVE DISTRICT",
+            id="81st_lower",
         ),
         pytest.param(
             "FOR REPRESENTATIVE IN CONGRESS 3RD CONGRESSIONAL DISTRICT (Vote For 1)",
             "FOR REPRESENTATIVE IN CONGRESS THIRD CONGRESSIONAL DISTRICT",
-            id="3rd",
+            id="3rd_upper",
+        ),
+        pytest.param(
+            "FOR REPRESENTATIVE IN CONGRESS 3rd CONGRESSIONAL DISTRICT (Vote For 1)",
+            "FOR REPRESENTATIVE IN CONGRESS THIRD CONGRESSIONAL DISTRICT",
+            id="3rd_lower",
+        ),
+        pytest.param(
+            "FOR REPRESENTATIVE IN THE GENERAL ASSEMBLY 13TH REPRESENTATIVE DISTRICT (Vote For 1)",
+            "FOR REPRESENTATIVE IN THE GENERAL ASSEMBLY THIRTEENTH REPRESENTATIVE DISTRICT",
+            id="13th_previously_missing",
+        ),
+        pytest.param(
+            "FOR REPRESENTATIVE IN THE GENERAL ASSEMBLY 20TH REPRESENTATIVE DISTRICT (Vote For 1)",
+            "FOR REPRESENTATIVE IN THE GENERAL ASSEMBLY TWENTIETH REPRESENTATIVE DISTRICT",
+            id="20th_decade",
+        ),
+        pytest.param(
+            "FOR REPRESENTATIVE IN THE GENERAL ASSEMBLY 99TH REPRESENTATIVE DISTRICT (Vote For 1)",
+            "FOR REPRESENTATIVE IN THE GENERAL ASSEMBLY NINETY-NINTH REPRESENTATIVE DISTRICT",
+            id="99th_ceiling",
         ),
     ])
     def test_spells_out_ordinals(self, raw, expected):
         assert normalize_contest_name(raw) == expected
+
+
+class TestOrdinalMap:
+    """Tests for the generated ORDINAL_MAP and its helper functions."""
+
+    def test_covers_1_to_99(self):
+        for n in range(1, 100):
+            suffix = _ordinal_suffix(n)
+            assert suffix in ORDINAL_MAP, f"{suffix!r} missing from ORDINAL_MAP"
+
+    def test_does_not_cover_0_or_100(self):
+        assert _ordinal_suffix(0) not in ORDINAL_MAP
+        assert _ordinal_suffix(100) not in ORDINAL_MAP
+
+    @pytest.mark.parametrize("n, expected_suffix", [
+        (1,  "1st"),
+        (2,  "2nd"),
+        (3,  "3rd"),
+        (4,  "4th"),
+        (11, "11th"),  # not 11st
+        (12, "12th"),  # not 12nd
+        (13, "13th"),  # not 13rd
+        (21, "21st"),
+        (22, "22nd"),
+        (23, "23rd"),
+        (99, "99th"),
+    ])
+    def test_ordinal_suffix(self, n, expected_suffix):
+        assert _ordinal_suffix(n) == expected_suffix
+
+    @pytest.mark.parametrize("n, expected_word", [
+        (1,  "first"),
+        (2,  "second"),
+        (3,  "third"),
+        (11, "eleventh"),
+        (12, "twelfth"),
+        (13, "thirteenth"),
+        (20, "twentieth"),
+        (21, "twenty-first"),
+        (30, "thirtieth"),
+        (50, "fiftieth"),
+        (81, "eighty-first"),
+        (99, "ninety-ninth"),
+    ])
+    def test_ordinal_word(self, n, expected_word):
+        assert _ordinal_word(n) == expected_word
+
+    def test_all_values_are_nonempty_strings(self):
+        for suffix, word in ORDINAL_MAP.items():
+            assert isinstance(word, str) and word, f"{suffix!r} maps to empty/non-string"
+
+    def test_keys_are_lowercase(self):
+        for key in ORDINAL_MAP:
+            assert key == key.lower(), f"Key {key!r} is not lowercase"
 
     def test_uppercase(self):
         assert normalize_contest_name("for attorney general") == "FOR ATTORNEY GENERAL"

@@ -2,7 +2,6 @@
 Tests for election_analysis.analysis (ElectionAnalyzer)
 """
 
-
 import pytest
 import pandas as pd
 
@@ -91,7 +90,7 @@ def db_with_two_elections(db):
                 "registered_voters": 636000,
                 "ballots_cast": 161000,
             },
-            # REP missing for COUNTY CLERK in 2026 — not comparable
+            # REP missing for COUNTY CLERK in 2026 -- not comparable
         ],
     )
     return db
@@ -141,21 +140,13 @@ def analyzer(db_with_two_elections):
 
 
 class TestListElections:
-    def test_returns_dataframe(self, analyzer):
+    # Consolidated: one test covering all four properties of the method's output.
+    def test_returns_correct_dataframe(self, analyzer):
         result = analyzer.list_elections()
         assert isinstance(result, pd.DataFrame)
-
-    def test_has_expected_columns(self, analyzer):
-        result = analyzer.list_elections()
         for col in ["id", "name", "year", "election_date"]:
             assert col in result.columns
-
-    def test_returns_all_elections(self, analyzer):
-        result = analyzer.list_elections()
         assert len(result) == 2
-
-    def test_ordered_by_year(self, analyzer):
-        result = analyzer.list_elections()
         assert result.iloc[0]["year"] <= result.iloc[1]["year"]
 
 
@@ -302,17 +293,8 @@ class TestPctChangeByParty:
             "2022 General Primary", "2026 General Primary", comparable_only=False
         )
         row = result[result["contest"] == "FOR COUNTY CLERK"].iloc[0]
-        # REP has no 2026 data — that cell should be NaN
+        # REP has no 2026 data -- that cell should be NaN
         assert pd.isna(row["REP 2026 General Primary"])
-
-    def test_comparable_only_defaults_to_true(self, analyzer):
-        result_default = analyzer.pct_change_by_party(
-            "2022 General Primary", "2026 General Primary"
-        )
-        result_explicit = analyzer.pct_change_by_party(
-            "2022 General Primary", "2026 General Primary", comparable_only=True
-        )
-        assert list(result_default["contest"]) == list(result_explicit["contest"])
 
 
 # ---------------------------------------------------------------------------
@@ -453,22 +435,13 @@ class TestPartyShare:
         )
         assert "FOR COUNTY CLERK" not in result["contest"].values
 
-    def test_comparable_only_defaults_to_true(self, analyzer):
-        result_default = analyzer.party_share(
-            "2022 General Primary", "2026 General Primary"
-        )
-        result_explicit = analyzer.party_share(
-            "2022 General Primary", "2026 General Primary", comparable_only=True
-        )
-        assert list(result_default["contest"]) == list(result_explicit["contest"])
-
     def test_has_pp_change_columns(self, analyzer):
         result = analyzer.party_share("2022 General Primary", "2026 General Primary")
         assert "DEM pp change" in result.columns
         assert "REP pp change" in result.columns
 
     def test_pp_change_calculation(self, db):
-        # DEM: 40% in 2022, 60% in 2026 → +0.20
+        # DEM: 40% in 2022, 60% in 2026 -> +0.20
         seed_election(
             db,
             "2022 General Primary",
@@ -543,7 +516,7 @@ class TestPartyShare:
             "2014 General Primary",
         )
         row = result[result["contest"] == "FOR SENATOR"].iloc[0]
-        # DEM: 0.30 in 2014, 0.60 in 2026 → +0.30
+        # DEM: 0.30 in 2014, 0.60 in 2026 -> +0.30
         assert abs(row["DEM pp change"] - 0.30) < 1e-6
 
     def test_pp_change_column_order(self, analyzer):
@@ -565,7 +538,7 @@ class TestPartyShare:
             "2022 General Primary", "2026 General Primary", comparable_only=False
         )
         row = result[result["contest"] == "FOR COUNTY CLERK"].iloc[0]
-        # REP missing in 2026 → pp change is NaN
+        # REP missing in 2026 -> pp change is NaN
         assert pd.isna(row["REP pp change"])
 
 
@@ -575,18 +548,14 @@ class TestPartyShare:
 
 
 class TestTurnout:
-    def test_returns_dataframe(self, analyzer):
+    def test_returns_correct_dataframe(self, analyzer):
+        """Covers shape, index, columns, and ordering in one call."""
         result = analyzer.turnout()
         assert isinstance(result, pd.DataFrame)
-
-    def test_index_labels(self, analyzer):
-        result = analyzer.turnout()
         assert list(result.index) == ["% Vote", "Registered", "Ballots Cast"]
-
-    def test_columns_are_election_names(self, analyzer):
-        result = analyzer.turnout()
         assert "2022 General Primary" in result.columns
         assert "2026 General Primary" in result.columns
+        assert result.index.name == "Metric"
 
     def test_pct_vote_calculation(self, db):
         seed_election(
@@ -607,6 +576,20 @@ class TestTurnout:
         result = analyzer.turnout()
         assert abs(result.loc["% Vote", "2022 General Primary"] - 0.25) < 1e-6
 
+    def test_pct_vote_null_when_ballots_cast_is_none(self, db):
+        """When ballots_cast is NULL in the DB, % Vote should be NaN rather than raise."""
+        seed_election(
+            db,
+            "2022 General Primary",
+            2022,
+            [{"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM", "total_votes": 5000}],
+            # ballots_cast intentionally omitted -> stored as NULL
+            registered_voters=100000,
+        )
+        analyzer = ElectionAnalyzer(db)
+        result = analyzer.turnout()
+        assert pd.isna(result.loc["% Vote", "2022 General Primary"])
+
     def test_filters_to_specified_elections(self, analyzer):
         result = analyzer.turnout("2022 General Primary")
         assert "2022 General Primary" in result.columns
@@ -615,10 +598,6 @@ class TestTurnout:
     def test_returns_all_elections_when_none_specified(self, analyzer):
         result = analyzer.turnout()
         assert len(result.columns) == 2
-
-    def test_index_name_is_metric(self, analyzer):
-        result = analyzer.turnout()
-        assert result.index.name == "Metric"
 
 
 # ---------------------------------------------------------------------------
@@ -701,7 +680,7 @@ class TestAggregatedCsv:
         assert (result["category"] == "General Primary").all()
 
     def test_includes_legislation_contests(self, analyzer):
-        # aggregated_csv is a raw export — legislation is not filtered out
+        # aggregated_csv is a raw export -- legislation is not filtered out
         result = analyzer.aggregated_csv("2022 General Primary")
         assert "Referendum Question 1 (Vote For 1)" in result["contest name"].values
 
@@ -733,7 +712,7 @@ def _seed_precinct_data(db, election_name, year, rows):
     """
     from tests.conftest import seed_election
 
-    # Deduplicate summary rows (one per contest × party × candidate)
+    # Deduplicate summary rows (one per contest x party x candidate)
     seen = set()
     summary_rows = []
     for r in rows:
@@ -899,6 +878,9 @@ class TestPrecinctTurnout:
         assert set(result["year"].unique()) == {2022, 2026}
 
     def test_excludes_legislation_contests(self, db):
+        # Uses insert_election directly to set is_legislation=1 via the no-party path.
+        # This is intentional: seed_election pre-registers the contest which bypasses
+        # the flag-based legislation inference that this test specifically exercises.
         from tests.conftest import make_candidates_df
         from src.election_analysis_generator.models import Election
 

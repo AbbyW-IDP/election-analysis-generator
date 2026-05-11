@@ -12,14 +12,14 @@ The database has two kinds of tables:
   Data tables — store election results:
     elections                 One row per election event (e.g. "2022 General Primary")
     contests                  One row per unique contest (e.g. "FOR ATTORNEY GENERAL")
-    candidates                One row per candidate per contest per election (county-wide totals)
+    contest_results           One row per candidate per contest per election (county-wide totals)
     candidate_precinct_results  One row per candidate per contest per precinct per election
 
   Bookkeeping tables — support the load and review workflow:
-    contest_names             Registry of all known normalized contest names
-    contest_name_flags        Names from new sources that didn't match any known name
+    contest_name_registry     Registry of all known normalized contest names
+    contest_flags             Names from new sources that didn't match any known name
     contest_name_overrides    Manual mappings: raw name → canonical normalized name
-    loaded_files              Tracks which files have already been loaded
+    source_files              Tracks which files have already been loaded
 
 For a full description of each table and column, see README.md.
 """
@@ -43,7 +43,6 @@ _SCHEMA = """
     CREATE TABLE IF NOT EXISTS elections (
         id                   INTEGER PRIMARY KEY AUTOINCREMENT,
         name                 TEXT NOT NULL UNIQUE,
-        key                  TEXT NOT NULL,
         year                 INTEGER NOT NULL,
         election_date        TEXT,
         results_last_updated TEXT,
@@ -62,7 +61,7 @@ _SCHEMA = """
     );
 
     -- One row per candidate/row in a source CSV
-    CREATE TABLE IF NOT EXISTS candidates (
+    CREATE TABLE IF NOT EXISTS contest_results (
         id                  INTEGER PRIMARY KEY AUTOINCREMENT,
         contest_id          INTEGER NOT NULL REFERENCES contests(id),
         election_id         INTEGER NOT NULL REFERENCES elections(id),
@@ -84,13 +83,13 @@ _SCHEMA = """
     );
 
     -- Registry of known normalized contest names (used for flagging)
-    CREATE TABLE IF NOT EXISTS contest_names (
+    CREATE TABLE IF NOT EXISTS contest_name_registry (
         contest_name        TEXT PRIMARY KEY,
         first_seen_year     INTEGER NOT NULL
     );
 
     -- Contest names from new sources that didn't match any known name
-    CREATE TABLE IF NOT EXISTS contest_name_flags (
+    CREATE TABLE IF NOT EXISTS contest_flags (
         id                  INTEGER PRIMARY KEY AUTOINCREMENT,
         year                INTEGER NOT NULL,
         contest_name_raw    TEXT NOT NULL,
@@ -107,7 +106,7 @@ _SCHEMA = """
     );
 
     -- Registry of files that have been loaded
-    CREATE TABLE IF NOT EXISTS loaded_files (
+    CREATE TABLE IF NOT EXISTS source_files (
         filename            TEXT PRIMARY KEY,
         election_id         INTEGER REFERENCES elections(id),
         loaded_at           TEXT DEFAULT (datetime('now'))
@@ -142,32 +141,15 @@ _SCHEMA = """
 
 
 def _placeholders(n: int) -> str:
-    """Return a comma-separated string of n '?' placeholders for use in SQL IN clauses."""
-    return ",".join("?" * n)
+    """Return a comma-separated string of n '?' placeholders for use in SQL IN clauses.
 
-
-def _make_election_key(year: int, category: str, election_type: str) -> str:
-    """Build the election key from year, category, and election_type.
-
-    The key uniquely identifies the type of election event and is used for
-    cross-database lookups where the auto-incremented id is not portable.
-    Format: "<year> <category> <election_type>", e.g. "2026 General Primary midterm".
-    Empty category or election_type parts are omitted.
-
-    Args:
-        year:          Four-digit election year.
-        category:      Election category (e.g. "General Primary"). May be empty.
-        election_type: Election type (e.g. "midterm"). May be empty.
-
-    Returns:
-        A non-empty key string.
+    Raises:
+        ValueError: if n < 1, which would produce an empty IN clause and
+                    invalid SQL.
     """
-    parts = [str(year)]
-    if category:
-        parts.append(category)
-    if election_type:
-        parts.append(election_type)
-    return " ".join(parts)
+    if n < 1:
+        raise ValueError(f"_placeholders requires n >= 1, got {n}")
+    return ",".join("?" * n)
 
 
 class ElectionDatabase:
@@ -180,7 +162,7 @@ class ElectionDatabase:
       1. Schema — creates all tables and indexes on first run (idempotent, so
          safe to call on an existing database).
 
-      2. Writes — inserting elections, candidates, precinct results, contest
+      2. Writes — inserting elections, contest_results, precinct results, contest
          registrations, flags, and overrides.
 
       3. Reads — retrieving elections by name or id, querying flags, and a
@@ -213,10 +195,10 @@ class ElectionDatabase:
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._create_schema()
 
-    def __enter__(self):
+    def __enter__(self) -> "ElectionDatabase":
         return self
 
-    def __exit__(self, *_):
+    def __exit__(self, *_: object) -> None:
         self.close()
 
     def close(self) -> None:
@@ -256,7 +238,7 @@ class ElectionDatabase:
         self, election: Election, df: pd.DataFrame
     ) -> tuple[Election, list[str]]:
         """
-        Insert an Election and all its candidates from a normalized DataFrame.
+        Insert an Election and all its results from a normalized DataFrame.
 
         This is the main entry point called by LoadSummary when processing
         a summary CSV. It performs four steps in a single transaction:
@@ -267,7 +249,7 @@ class ElectionDatabase:
              manual overrides first, then the standard normalization rules).
           3. Upserts each unique contest into the contests table and flags any
              contest names not previously seen in this database.
-          4. Inserts one candidate row per row in df into the candidates table.
+          4. Inserts one result row per row in df into the contest_results table.
 
         The ballots_cast and registered_voters on the elections table are
         election-wide figures that come from elections.toml (via the Election
@@ -285,21 +267,19 @@ class ElectionDatabase:
             A tuple of:
               - The same Election object with its new database id populated.
               - A sorted list of normalized contest names that were not
-                previously in the contest_names registry and were therefore
+                previously in the contest_name_registry and were therefore
                 flagged for review. Empty list if all names were recognized.
         """
-        election_key = _make_election_key(election.year, election.category, election.election_type)
         cur = self._conn.execute(
             """
             INSERT INTO elections
-                (name, key, year, election_date, results_last_updated,
+                (name, year, election_date, results_last_updated,
                  summary_file, category, election_type,
                  ballots_cast, registered_voters)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 election.name,
-                election_key,
                 election.year,
                 election.election_date.isoformat() if election.election_date else None,
                 election.results_last_updated.isoformat()
@@ -318,7 +298,6 @@ class ElectionDatabase:
         election = Election(
             id=election_id,
             name=election.name,
-            key=election_key,
             year=election.year,
             election_date=election.election_date,
             results_last_updated=election.results_last_updated,
@@ -337,6 +316,32 @@ class ElectionDatabase:
         )
 
         self._conn.commit()
+        return election, new_names
+
+    def insert_election_with_file(
+        self,
+        election: Election,
+        df: pd.DataFrame,
+        filename: str,
+    ) -> tuple[Election, list[str]]:
+        """Insert an election and immediately register its source file.
+
+        This is the canonical single-step operation used by both the
+        production loader (LoadSummary) and the test helper (seed_election).
+        Keeping the two calls together here ensures they can never diverge.
+
+        Args:
+            election: Election to insert (id must be None).
+            df:       Normalized candidates DataFrame.
+            filename: Source filename to register (e.g. "2022-general-primary.csv").
+
+        Returns:
+            Same tuple as insert_election: (election_with_id, new_names).
+        """
+        election, new_names = self.insert_election(election, df)
+        if election.id is None:
+            raise RuntimeError("insert_election did not return an election id")
+        self.register_file(filename, election.id)
         return election, new_names
 
     def _normalize_df(
@@ -384,12 +389,12 @@ class ElectionDatabase:
           1. Inserts the contest into the contests table if it isn't already
              there (INSERT OR IGNORE, so existing rows are untouched).
 
-          2. Registers the name in contest_names (the "known names" registry)
+          2. Registers the name in contest_name_registry
              with the year it was first seen. This registry is what future
              loads check against to decide whether a name is new.
 
           3. If the name wasn't in the known set passed in, adds it to the
-             returned list and writes a flag row to contest_name_flags so a
+             returned list and writes a flag row to contest_flags so a
              human can review it.
 
         The known set is captured once at the start of insert_election() so
@@ -406,7 +411,7 @@ class ElectionDatabase:
             contest_rows: pd.DataFrame = df[df["contest_name"] == contest_name]  # type: ignore[assignment]
             self._upsert_contest(contest_name, contest_rows)
             self._conn.execute(
-                "INSERT OR IGNORE INTO contest_names (contest_name, first_seen_year) VALUES (?,?)",
+                "INSERT OR IGNORE INTO contest_name_registry (contest_name, first_seen_year) VALUES (?,?)",
                 (contest_name, year),
             )
             if contest_name not in known:
@@ -418,6 +423,40 @@ class ElectionDatabase:
 
         return sorted(new_names)
 
+    def _build_contest_id_map(self, contest_names: list[str]) -> dict[str, int]:
+        """Return a {contest_name: id} dict for the given normalized names.
+
+        Fetches all contest ids in a single query rather than one SELECT per
+        candidate row.  Called by _insert_candidates() after _upsert_contests()
+        has guaranteed that every name in the list already exists in contests.
+
+        Args:
+            contest_names: Distinct normalized contest names to look up.
+
+        Returns:
+            Mapping from contest_name to its integer primary key.
+
+        Raises:
+            KeyError: if a name is missing from contests (should never happen
+                when called from within an insert_election() transaction, but
+                surfacing it immediately is better than a None FK violation
+                several rows later).
+        """
+        if not contest_names:
+            return {}
+        placeholders = _placeholders(len(contest_names))
+        rows = self._conn.execute(
+            f"SELECT contest_name, id FROM contests WHERE contest_name IN ({placeholders})",  # nosec B608 - placeholders only, values passed as parameters
+            contest_names,
+        ).fetchall()
+        result = {r["contest_name"]: r["id"] for r in rows}
+        missing = set(contest_names) - result.keys()
+        if missing:
+            raise KeyError(
+                f"Contest names not found in contests table: {sorted(missing)}"
+            )
+        return result
+
     def _insert_candidates(
         self,
         df: pd.DataFrame,
@@ -425,63 +464,73 @@ class ElectionDatabase:
         election_name: str,
         year: int,
     ) -> None:
-        """Insert all candidate rows from df into the candidates table.
+        """Insert all result rows from df into the contest_results table.
 
-        Each row in df becomes one row in candidates, representing a single
+        Each row in df becomes one row in contest_results, representing a single
         candidate's county-wide total for one contest in one election. This
         is the summary grain — one number per candidate per contest, not
         broken down by precinct.
 
-        The contest_id FK is resolved here by looking up each row's normalized
-        contest_name in the contests table. This lookup is safe because
-        _upsert_contests() always runs before this method within the same
-        insert_election() transaction, guaranteeing every contest_name in df
-        already exists in contests.
+        The contest_id FK is resolved by building a {contest_name: id} dict
+        once via _build_contest_id_map() — a single SELECT IN query — before
+        processing any rows.  This replaces the previous approach of issuing
+        one SELECT per candidate row (an O(n) round-trip problem).
+
+        Rows are then collected into a list and written with a single
+        executemany() call, which is substantially faster than calling
+        execute() in a Python loop.
 
         election_name and year are denormalized onto each candidate row (they
         could be derived via a JOIN to elections) to make analysis queries
-        simpler and faster — ElectionAnalyzer queries candidates directly
+        simpler and faster — ElectionAnalyzer queries contest_results directly
         without always needing to join elections.
         """
-        for _, row in df.iterrows():
-            contest_id = self._conn.execute(
-                "SELECT id FROM contests WHERE contest_name = ?",
-                (row["contest_name"],),
-            ).fetchone()["id"]
+        unique_names: list[str] = df["contest_name"].unique().tolist()
+        contest_id_map = self._build_contest_id_map(unique_names)
 
-            self._conn.execute(
-                """
-                INSERT INTO candidates
-                    (contest_id, election_id, line_number, contest_name_raw,
-                     contest_name, election_name, year,
-                     choice_name, party, total_votes, percent_of_votes,
-                     registered_voters, ballots_cast,
-                     num_precinct_total, num_precinct_rptg, over_votes, under_votes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    contest_id,
-                    election_id,
-                    int(row["line_number"])  # type: ignore[arg-type]
-                    if row.get("line_number") is not None
-                    and not pd.isna(row.get("line_number"))  # type: ignore[arg-type]
-                    else None,
-                    row["contest_name_raw"],
-                    row["contest_name"],
-                    election_name,
-                    year,
-                    row.get("choice_name"),
-                    row.get("party"),
-                    row.get("total_votes"),
-                    row.get("percent_of_votes"),
-                    row.get("registered_voters"),
-                    row.get("ballots_cast"),
-                    row.get("num_precinct_total"),
-                    row.get("num_precinct_rptg"),
-                    row.get("over_votes"),
-                    row.get("under_votes"),
-                ),
+        def _line_number(val) -> int | None:
+            try:
+                if val is None or pd.isna(val):
+                    return None
+            except (TypeError, ValueError):
+                pass
+            return int(val)
+
+        params = [
+            (
+                contest_id_map[row["contest_name"]],
+                election_id,
+                _line_number(row.get("line_number")),
+                row["contest_name_raw"],
+                row["contest_name"],
+                election_name,
+                year,
+                row.get("choice_name"),
+                row.get("party"),
+                row.get("total_votes"),
+                row.get("percent_of_votes"),
+                row.get("registered_voters"),
+                row.get("ballots_cast"),
+                row.get("num_precinct_total"),
+                row.get("num_precinct_rptg"),
+                row.get("over_votes"),
+                row.get("under_votes"),
             )
+            for row in df.to_dict("records")
+        ]
+
+        self._conn.executemany(
+            """
+            INSERT INTO contest_results
+                (contest_id, election_id, line_number, contest_name_raw,
+                 contest_name, election_name, year,
+                 choice_name, party, total_votes, percent_of_votes,
+                 registered_voters, ballots_cast,
+                 num_precinct_total, num_precinct_rptg, over_votes, under_votes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            params,
+        )
 
     def _upsert_contest(self, contest_name: str, rows: pd.DataFrame) -> None:
         """Insert a contest into the contests table if it doesn't already exist.
@@ -584,7 +633,6 @@ class ElectionDatabase:
         return Election(
             id=row["id"],
             name=row["name"],
-            key=row["key"],
             year=row["year"],
             election_date=date.fromisoformat(row["election_date"])
             if row["election_date"]
@@ -602,7 +650,7 @@ class ElectionDatabase:
     # ------------------------------------------------------------------
     # Source file registry
     #
-    # loaded_files tracks which files have already been processed.
+    # source_files tracks which files have already been processed.
     # LoadSummary checks is_file_loaded() before attempting to load a
     # file, and calls register_file() after a successful load. This makes
     # sync-sources idempotent — running it multiple times will not re-load
@@ -620,7 +668,7 @@ class ElectionDatabase:
         to register_file() — typically the basename from elections.toml.
         """
         row = self._conn.execute(
-            "SELECT 1 FROM loaded_files WHERE filename = ?", (filename,)
+            "SELECT 1 FROM source_files WHERE filename = ?", (filename,)
         ).fetchone()
         return row is not None
 
@@ -632,7 +680,7 @@ class ElectionDatabase:
         twice for the same filename is safe.
         """
         self._conn.execute(
-            "INSERT OR IGNORE INTO loaded_files (filename, election_id) VALUES (?,?)",
+            "INSERT OR IGNORE INTO source_files (filename, election_id) VALUES (?,?)",
             (filename, election_id),
         )
         self._conn.commit()
@@ -644,22 +692,22 @@ class ElectionDatabase:
         load time. Used by the CLI to display what has been loaded and when.
         """
         rows = self._conn.execute(
-            "SELECT filename, election_id, loaded_at FROM loaded_files ORDER BY loaded_at"
+            "SELECT filename, election_id, loaded_at FROM source_files ORDER BY loaded_at"
         ).fetchall()
         return [dict(r) for r in rows]
 
     # ------------------------------------------------------------------
     # Contest name registry
     #
-    # contest_names is a flat list of every normalized contest name that has
+    # contest_name_registry is a flat list of every normalized contest name that has
     # been seen and accepted across all elections in this database. It is the
     # reference set used to detect new/unknown names when a new election is
     # loaded.
     #
-    # The distinction between contest_names and contests:
+    # The distinction between contest_name_registry and contests:
     #   contests        — one row per contest, with metadata (is_legislation).
-    #                     Used for analysis and FK references from candidates.
-    #   contest_names   — one row per known name, with first_seen_year.
+    #                     Used for analysis and FK references from contest_results.
+    #   contest_name_registry — one row per known name, with first_seen_year.
     #                     Used only for new-name detection at load time.
     #
     # They stay in sync because _upsert_contests() writes to both tables
@@ -673,7 +721,7 @@ class ElectionDatabase:
         of known names before the new election is loaded. Any contest name in
         the new file that isn't in this set will be flagged for review.
         """
-        rows = self._conn.execute("SELECT contest_name FROM contest_names").fetchall()
+        rows = self._conn.execute("SELECT contest_name FROM contest_name_registry").fetchall()
         return {r[0] for r in rows}
 
     def register_contest_name(self, name: str, year: int) -> None:
@@ -683,19 +731,20 @@ class ElectionDatabase:
         conftest.py's seed_election() in tests to pre-register names so they
         don't get flagged as unknown. INSERT OR IGNORE means calling this for
         an already-known name is safe.
+
+        Does not commit — the caller is responsible for committing.
         """
         self._conn.execute(
-            "INSERT OR IGNORE INTO contest_names (contest_name, first_seen_year) VALUES (?,?)",
+            "INSERT OR IGNORE INTO contest_name_registry (contest_name, first_seen_year) VALUES (?,?)",
             (name, year),
         )
-        self._conn.commit()
 
     # ------------------------------------------------------------------
     # Overrides
     #
     # contest_name_overrides is a manual mapping table: raw name (as it
     # appears in a summary file) → canonical normalized name (as stored in
-    # contests and contest_names). An override is added when a flag is
+    # contests and contest_name_registry). An override is added when a flag is
     # resolved with status "mapped" — meaning the raw name from a new
     # source should be treated as the same contest as an existing one,
     # bypassing the automatic normalization rules.
@@ -728,25 +777,26 @@ class ElectionDatabase:
 
         INSERT OR REPLACE means calling this for an existing raw_name updates
         the canonical target rather than raising an error.
+
+        Does not commit — the caller is responsible for committing.
         """
         self._conn.execute(
             "INSERT OR REPLACE INTO contest_name_overrides (contest_name_raw, contest_name, note) VALUES (?,?,?)",
             (raw_name, canonical_name, note),
         )
-        self._conn.commit()
 
     # ------------------------------------------------------------------
     # Flags
     #
     # When a new election is loaded, any normalized contest name that isn't
-    # already in contest_names is written to contest_name_flags with
+    # already in contest_name_registry is written to contest_flags with
     # resolved=0. This signals that a human needs to decide whether to:
     #   - Accept it as a genuinely new contest (resolved via export/import
     #     flags or review-flags)
     #   - Map it to an existing contest (adds an override)
     #   - Ignore it (e.g. a ballot measure not being tracked)
     #
-    # Flags do not block the load — the contest and its candidates are
+    # Flags do not block the load — the contest and its contest_results rows are
     # stored regardless. Flags are purely a review prompt.
     # ------------------------------------------------------------------
 
@@ -759,7 +809,7 @@ class ElectionDatabase:
         """
         rows = self._conn.execute("""
             SELECT id, year, contest_name_raw, contest_name
-            FROM contest_name_flags
+            FROM contest_flags
             WHERE resolved = 0
             ORDER BY year, contest_name
         """).fetchall()
@@ -771,11 +821,12 @@ class ElectionDatabase:
         Called by import_flags() and review_flags() after a decision has been
         recorded. Resolved flags no longer appear in get_unresolved_flags(),
         but the rows remain in the table as a permanent audit trail.
+
+        Does not commit — the caller is responsible for committing.
         """
         self._conn.execute(
-            "UPDATE contest_name_flags SET resolved = 1 WHERE id = ?", (flag_id,)
+            "UPDATE contest_flags SET resolved = 1 WHERE id = ?", (flag_id,)
         )
-        self._conn.commit()
 
     def _write_flags(self, df: pd.DataFrame, year: int) -> None:
         """Insert flag rows for all unique contest names in df.
@@ -793,22 +844,21 @@ class ElectionDatabase:
             index=False
         )
         self._conn.executemany(
-            "INSERT INTO contest_name_flags (year, contest_name_raw, contest_name) VALUES (?,?,?)",
+            "INSERT INTO contest_flags (year, contest_name_raw, contest_name) VALUES (?,?,?)",
             flag_rows,
         )
-        self._conn.commit()
 
     # ------------------------------------------------------------------
     # Precinct-level results
     #
     # candidate_precinct_results stores the geographic breakdown of votes
-    # from detail Excel files. Where the candidates table has one row per
+    # from detail Excel files. Where the contest_results table has one row per
     # candidate per contest per election (county-wide total), this table has
     # one row per candidate per contest per precinct per election.
     #
     # The two tables are populated from different input files and never
     # interfere with each other:
-    #   Summary CSV    → candidates          (loaded by LoadSummary)
+    #   Summary CSV    → contest_results     (loaded by LoadSummary)
     #   Detail Excel   → candidate_precinct_results  (loaded by load_detail_excel)
     #
     # Summing total_votes by (election_id, contest_id, choice_name) in this
@@ -816,7 +866,7 @@ class ElectionDatabase:
     # The cross-check query in the schema notes can verify this after a load.
     # ------------------------------------------------------------------
 
-    def insert_precinct_results(self, rows: list[dict]) -> int:
+    def insert_precinct_results(self, rows: list[dict]) -> None:
         """Insert precinct-level result rows, skipping duplicates.
 
         Each dict in *rows* must have the keys:
@@ -825,10 +875,8 @@ class ElectionDatabase:
             polling, provisional, total_votes
 
         contest_id must be the integer primary key from the contests table,
-        not the normalized name string.
-
-        Returns the number of rows actually inserted. Duplicates are silently
-        skipped via INSERT OR IGNORE, so the count may be less than len(rows).
+        not the normalized name string. Duplicates are silently skipped via
+        INSERT OR IGNORE.
 
         Raises:
             sqlite3.IntegrityError  – if election_id or contest_id FK is
@@ -862,9 +910,8 @@ class ElectionDatabase:
                 :total_votes
             )
         """
-        cursor = self._conn.executemany(sql, rows)
+        self._conn.executemany(sql, rows)
         self._conn.commit()
-        return cursor.rowcount
 
     # ------------------------------------------------------------------
     # Read access (for analysis)
@@ -888,7 +935,7 @@ class ElectionDatabase:
 
         Example:
             df = db.query(
-                "SELECT * FROM candidates WHERE election_id = ?",
+                "SELECT * FROM contest_results WHERE election_id = ?",
                 params=[election_id]
             )
         """
