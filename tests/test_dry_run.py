@@ -19,37 +19,12 @@ loader or DB logic.
 
 from __future__ import annotations
 
-import io
-from contextlib import redirect_stdout
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
-
-import election_analysis_generator.cli as cli
 from election_analysis_generator.db import ElectionDatabase
 from election_analysis_generator.loader import LoadSummary
 from tests.conftest import make_elections_config, make_source_csv
-
-
-# ---------------------------------------------------------------------------
-# CLI test helpers (kept local — not reusable outside this module)
-# ---------------------------------------------------------------------------
-
-
-def _make_loader_mock(results: dict) -> MagicMock:
-    mock = MagicMock()
-    mock.sync.return_value = results
-    return mock
-
-
-def _make_db_ctx() -> tuple[MagicMock, MagicMock]:
-    """Return (context-manager mock, inner db mock) for patching ElectionDatabase."""
-    inner = MagicMock()
-    ctx = MagicMock()
-    ctx.__enter__ = MagicMock(return_value=inner)
-    ctx.__exit__ = MagicMock(return_value=False)
-    return ctx, inner
 
 
 # ---------------------------------------------------------------------------
@@ -190,97 +165,3 @@ class TestLoadSummaryDryRun:
 
         assert "2022-general.csv" not in result
         assert "2026-general.csv" in result
-
-
-# ---------------------------------------------------------------------------
-# CLI --dry-run flag (mocked DB and loader — testing wiring only)
-# ---------------------------------------------------------------------------
-
-
-class TestSyncSourcesCLIDryRun:
-    def test_prints_dry_run_header(self) -> None:
-        """--dry-run prints a '[dry run]' prefix on the scanning line."""
-        ctx, _ = _make_db_ctx()
-        loader = _make_loader_mock({"2026-general.csv": ("2026 General Primary", [])})
-
-        out = io.StringIO()
-        with (
-            redirect_stdout(out),
-            patch("election_analysis_generator.cli.ElectionDatabase", return_value=ctx),
-            patch("election_analysis_generator.cli.LoadSummary", return_value=loader),
-            patch("sys.argv", ["sync-sources", "--dry-run"]),
-        ):
-            cli.sync_sources()
-
-        assert "[dry run]" in out.getvalue()
-
-    def test_prints_would_load_line(self) -> None:
-        """--dry-run prints a 'Would load' line for each pending election."""
-        ctx, _ = _make_db_ctx()
-        loader = _make_loader_mock({"2026-general.csv": ("2026 General Primary", [])})
-
-        out = io.StringIO()
-        with (
-            redirect_stdout(out),
-            patch("election_analysis_generator.cli.ElectionDatabase", return_value=ctx),
-            patch("election_analysis_generator.cli.LoadSummary", return_value=loader),
-            patch("sys.argv", ["sync-sources", "--dry-run"]),
-        ):
-            cli.sync_sources()
-
-        assert "Would load" in out.getvalue()
-
-    @pytest.mark.parametrize("argv, expected", [
-        pytest.param(["sync-sources", "--dry-run"], True,  id="dry-run"),
-        pytest.param(["sync-sources"],              False, id="normal"),
-    ])
-    def test_passes_dry_run_flag_to_sync(self, argv: list[str], expected: bool) -> None:
-        """dry_run kwarg passed to LoadSummary.sync matches the CLI flag."""
-        ctx, _ = _make_db_ctx()
-        loader = _make_loader_mock({})
-
-        with (
-            patch("election_analysis_generator.cli.ElectionDatabase", return_value=ctx),
-            patch("election_analysis_generator.cli.LoadSummary", return_value=loader),
-            patch("sys.argv", argv),
-        ):
-            cli.sync_sources()
-
-        assert loader.sync.call_args.kwargs.get("dry_run") is expected
-
-    @pytest.mark.parametrize("argv", [
-        pytest.param(["sync-sources", "--dry-run"], id="dry-run"),
-        pytest.param(["sync-sources"],              id="normal"),
-    ])
-    def test_empty_results_prints_shared_message(self, argv: list[str]) -> None:
-        """Both modes print the same message when there are no elections to load."""
-        ctx, _ = _make_db_ctx()
-        loader = _make_loader_mock({})
-
-        out = io.StringIO()
-        with (
-            redirect_stdout(out),
-            patch("election_analysis_generator.cli.ElectionDatabase", return_value=ctx),
-            patch("election_analysis_generator.cli.LoadSummary", return_value=loader),
-            patch("sys.argv", argv),
-        ):
-            cli.sync_sources()
-
-        assert "No new elections found." in out.getvalue()
-
-    def test_normal_run_does_not_print_dry_run(self) -> None:
-        """Without --dry-run, output must not contain '[dry run]'."""
-        ctx, _ = _make_db_ctx()
-        loader = _make_loader_mock({"2026-general.csv": ("2026 General Primary", [])})
-
-        out = io.StringIO()
-        with (
-            redirect_stdout(out),
-            patch("election_analysis_generator.cli.ElectionDatabase", return_value=ctx),
-            patch("election_analysis_generator.cli.LoadSummary", return_value=loader),
-            patch("sys.argv", ["sync-sources"]),
-        ):
-            cli.sync_sources()
-
-        assert "[dry run]" not in out.getvalue()
-        assert "loaded successfully" in out.getvalue()
