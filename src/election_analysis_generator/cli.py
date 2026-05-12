@@ -67,10 +67,8 @@ def sync_sources() -> None:
     )
     args = parser.parse_args()
 
-    if args.dry_run:
-        print(f"[dry run] Scanning {args.config_path} for new elections...")
-    else:
-        print(f"Scanning {args.config_path} for new elections...")
+    prefix = "[dry run] " if args.dry_run else ""
+    print(f"{prefix}Scanning {args.config_path} for new elections...")
 
     with ElectionDatabase(DEFAULT_DB_PATH) as db:
         loader = LoadSummary(db)
@@ -81,19 +79,13 @@ def sync_sources() -> None:
         )
 
     if not results:
-        if args.dry_run:
-            print("Nothing new to load.")
-            print("No changes made.")
-        else:
-            print("No new elections found.")
+        print("No new elections found.")
         return
 
     any_flags = False
+    action = "Would load" if args.dry_run else "loaded successfully"
     for filename, (election_name, new_names) in results.items():
-        if args.dry_run:
-            print(f"\n  [dry run] Would load: {election_name} ({filename})")
-        else:
-            print(f"\n  {election_name} ({filename}): loaded successfully")
+        print(f"\n  {prefix}{election_name} ({filename}): {action}")
         if new_names:
             any_flags = True
             print(f"  [!] {len(new_names)} unrecognized contest name(s):")
