@@ -3,4 +3,5 @@ year,election_date,results_last_updated,category,election_type,summary_file,deta
 2018,3/20/2018,4/9/2018,General Primary,midterm,2018-general-primary-2018-04-09.csv,,633638,157671
 2022,6/28/2022,7/19/2022,General Primary,midterm,2022-general-primary-2022-07-19.csv,,636341,145051
 2026,3/17/2026,4/7/2026,General Primary,midterm,2026-general-primary-2026-04-07.csv,2026-general-primary-precinct-2026-04-07.xlsx,636822,161738
-2025,4/1/2025,4/22/2025,consolidated,off-year,2025-consolidated-2025-04-22.csv,2025-consolidated-precicnt-2025-04-01.xls,626499,144731
+2025,4/1/2025,4/22/2025,consolidated,off-year,2025-consolidated-2025-04-01.csv,2025-consolidated-precicct-2025-04-01.xls,626499,144731
+2025,2/25/2025,3/12/2025,consolidated primary,off-year,2025-consolidated-primary-2025-02-25.csv,2025-consolidated-primary-precinct-2025-02-25.xls,112760,7749
