@@ -318,13 +318,21 @@ class LoadSummary(_LoaderBase):
         self,
         sources_dir: Path = DEFAULT_SOURCES_DIR,
         config_path: Path = DEFAULT_CONFIG_PATH,
-    ) -> dict[str, tuple[Election, list[str]]]:
+        *,
+        dry_run: bool = False,
+    ) -> dict[str, tuple[str, list[str]]]:
         """Scan elections.csv for elections whose summary CSV hasn't been
         loaded yet and load them.
 
+        Args:
+            sources_dir: Directory containing source CSVs.
+            config_path: Path to elections.csv.
+            dry_run:     If True, report what would be loaded without writing
+                         anything to the database.
+
         Returns:
-            Dict mapping summary filename → (Election, new_unrecognized_names)
-            for each newly loaded file.
+            Dict mapping summary filename -> (election_name, new_unrecognized_names)
+            for each newly loaded (or, in dry-run mode, would-be-loaded) file.
         """
         if not sources_dir.exists():
             raise FileNotFoundError(f"Sources directory not found: {sources_dir}")
@@ -334,7 +342,7 @@ class LoadSummary(_LoaderBase):
             print(f"  No elections found in {config_path}")
             return {}
 
-        results: dict[str, tuple[Election, list[str]]] = {}
+        results: dict[str, tuple[str, list[str]]] = {}
         for entry in configs:
             filename = entry["summary_file"]
             if self._db.is_file_loaded(filename):
@@ -342,17 +350,21 @@ class LoadSummary(_LoaderBase):
 
             existing = self._db.get_election_by_name(entry["name"])
             if existing is not None:
-                if existing.id is not None:
+                if not dry_run and existing.id is not None:
                     self._db.register_file(filename, existing.id)
                 continue
 
             path = sources_dir / filename
             if not path.exists():
-                print(f"  Skipping {filename}: file not found in {sources_dir}")
+                if not dry_run:
+                    print(f"  Skipping {filename}: file not found in {sources_dir}")
                 continue
 
-            election, new_names = self.load_csv(path, entry)
-            results[filename] = (election, new_names)
+            if dry_run:
+                results[filename] = (entry["name"], [])
+            else:
+                election, new_names = self.load_csv(path, entry)
+                results[filename] = (election.name, new_names)
 
         return results
 

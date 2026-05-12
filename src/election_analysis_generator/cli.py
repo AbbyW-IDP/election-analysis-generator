@@ -59,25 +59,50 @@ def sync_sources() -> None:
         default=DEFAULT_CONFIG_PATH,
         help=f"Path to elections.csv (default: {DEFAULT_CONFIG_PATH})",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Preview what would be loaded without writing anything to the database.",
+    )
     args = parser.parse_args()
+
+    if args.dry_run:
+        print(f"[dry run] Scanning {args.config_path} for new elections...")
+    else:
+        print(f"Scanning {args.config_path} for new elections...")
 
     with ElectionDatabase(DEFAULT_DB_PATH) as db:
         loader = LoadSummary(db)
-        print(f"Scanning {args.config_path} for new elections...")
-        results = loader.sync(sources_dir=args.sources_dir, config_path=args.config_path)
+        results = loader.sync(
+            sources_dir=args.sources_dir,
+            config_path=args.config_path,
+            dry_run=args.dry_run,
+        )
 
     if not results:
-        print("No new elections found.")
+        if args.dry_run:
+            print("Nothing new to load.")
+            print("No changes made.")
+        else:
+            print("No new elections found.")
         return
 
     any_flags = False
-    for filename, (election, new_names) in results.items():
-        print(f"\n  {election.name} ({filename}): loaded successfully")
+    for filename, (election_name, new_names) in results.items():
+        if args.dry_run:
+            print(f"\n  [dry run] Would load: {election_name} ({filename})")
+        else:
+            print(f"\n  {election_name} ({filename}): loaded successfully")
         if new_names:
             any_flags = True
             print(f"  [!] {len(new_names)} unrecognized contest name(s):")
             for name in new_names:
                 print(f"    {name}")
+
+    if args.dry_run:
+        print("\nNo changes made.")
+        return
 
     if any_flags:
         print("\nRun: review-flags")
