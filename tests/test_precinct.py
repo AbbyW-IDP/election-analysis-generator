@@ -13,7 +13,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from src.election_analysis_generator.loader import LoadPrecinctDetail, LoadSummary
+from src.election_analysis_generator.loader import LoadPrecinctDetail
 from src.election_analysis_generator.analysis import ElectionAnalyzer
 from tests.conftest import seed_election
 

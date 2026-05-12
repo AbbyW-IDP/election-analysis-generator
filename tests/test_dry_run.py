@@ -20,7 +20,6 @@ loader or DB logic.
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock
 
 from election_analysis_generator.db import ElectionDatabase
 from election_analysis_generator.loader import LoadSummary
