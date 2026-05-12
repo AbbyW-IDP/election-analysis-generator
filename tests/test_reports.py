@@ -249,7 +249,7 @@ class TestRunReports:
             ReportConfig(
                 key="test",
                 output=Path("out.xlsx"),
-                analyses=[AnalysisEntry("turnout", "turnout", [])],
+                analyses=[AnalysisEntry("turnout", "turnout", [], comparable_only=False)],
             )
         ]
         written = run_reports(reports, db_with_elections, base_dir=tmp_path)
@@ -260,7 +260,7 @@ class TestRunReports:
             ReportConfig(
                 key="test",
                 output=Path("out.xlsx"),
-                analyses=[AnalysisEntry("turnout", "turnout", [])],
+                analyses=[AnalysisEntry("turnout", "turnout", [], comparable_only=False)],
             )
         ]
         written = run_reports(reports, db_with_elections, base_dir=tmp_path)
@@ -273,7 +273,7 @@ class TestRunReports:
             ReportConfig(
                 key="test",
                 output=Path("out.xlsx"),
-                analyses=[AnalysisEntry("turnout", "turnout sheet", [])],
+                analyses=[AnalysisEntry("turnout", "turnout sheet", [], comparable_only=False)],
             )
         ]
         written = run_reports(reports, db_with_elections, base_dir=tmp_path)
@@ -322,7 +322,7 @@ class TestRunReports:
                 key="test",
                 output=Path("out.xlsx"),
                 analyses=[
-                    AnalysisEntry("turnout", "turnout", []),
+                    AnalysisEntry("turnout", "turnout", [], comparable_only=False),
                     AnalysisEntry(
                         "pct_change_by_party",
                         "pct change",
@@ -339,10 +339,10 @@ class TestRunReports:
     def test_multiple_reports_write_separate_files(self, db_with_elections, tmp_path):
         reports = [
             ReportConfig(
-                "a", Path("a.xlsx"), [AnalysisEntry("turnout", "turnout", [])]
+                "a", Path("a.xlsx"), [AnalysisEntry("turnout", "turnout", [], comparable_only=False)]
             ),
             ReportConfig(
-                "b", Path("b.xlsx"), [AnalysisEntry("turnout", "turnout", [])]
+                "b", Path("b.xlsx"), [AnalysisEntry("turnout", "turnout", [], comparable_only=False)]
             ),
         ]
         written = run_reports(reports, db_with_elections, base_dir=tmp_path)
@@ -363,7 +363,7 @@ class TestRunReports:
                     AnalysisEntry(
                         "pct_change_by_party", "bad sheet", ["2022 General Primary"]
                     ),
-                    AnalysisEntry("turnout", "turnout", []),
+                    AnalysisEntry("turnout", "turnout", [], comparable_only=False),
                 ],
             )
         ]
@@ -380,7 +380,7 @@ class TestRunReports:
                 key="test",
                 output=Path("out.xlsx"),
                 analyses=[
-                    AnalysisEntry("turnout", "turnout", ["2022 General Primary"])
+                    AnalysisEntry("turnout", "turnout", ["2022 General Primary"], comparable_only=False)
                 ],
             )
         ]
@@ -487,7 +487,7 @@ class TestAnalysisRegistry:
             ReportConfig(
                 key="test",
                 output=Path("out.xlsx"),
-                analyses=[AnalysisEntry("aggregated_csv", "raw data", [])],
+                analyses=[AnalysisEntry("aggregated_csv", "raw data", [], comparable_only=False)],
             )
         ]
         written = run_reports(reports, db_with_elections, base_dir=tmp_path)
@@ -504,6 +504,7 @@ class TestAnalysisRegistry:
                         "aggregated_csv",
                         "raw data",
                         ["2022 General Primary"],
+                        comparable_only=False,
                     )
                 ],
             )
@@ -631,7 +632,7 @@ class TestRunReportsPrecinctTurnout:
             ReportConfig(
                 key="test",
                 output=Path("out.xlsx"),
-                analyses=[AnalysisEntry("precinct_turnout", "precinct turnout", [])],
+                analyses=[AnalysisEntry("precinct_turnout", "precinct turnout", [], comparable_only=False)],
             )
         ]
         written = run_reports(reports, db, base_dir=tmp_path)
@@ -644,7 +645,7 @@ class TestRunReportsPrecinctTurnout:
             ReportConfig(
                 key="test",
                 output=Path("out.xlsx"),
-                analyses=[AnalysisEntry("precinct_turnout", "precinct turnout", [])],
+                analyses=[AnalysisEntry("precinct_turnout", "precinct turnout", [], comparable_only=False)],
             )
         ]
         written = run_reports(reports, db, base_dir=tmp_path)
@@ -698,6 +699,7 @@ class TestRunReportsPrecinctTurnout:
                         "precinct_turnout",
                         "precinct turnout",
                         ["2026 General Primary"],
+                        comparable_only=False,
                     )
                 ],
             )
@@ -714,7 +716,7 @@ class TestRunReportsPrecinctTurnout:
             ReportConfig(
                 key="test",
                 output=Path("out.xlsx"),
-                analyses=[AnalysisEntry("precinct_turnout", "precinct turnout", [])],
+                analyses=[AnalysisEntry("precinct_turnout", "precinct turnout", [], comparable_only=False)],
             )
         ]
         written = run_reports(reports, db, base_dir=tmp_path)
@@ -729,7 +731,7 @@ class TestRunReportsPrecinctTurnout:
             ReportConfig(
                 key="test",
                 output=Path("out.xlsx"),
-                analyses=[AnalysisEntry("precinct_turnout", "precinct turnout", [])],
+                analyses=[AnalysisEntry("precinct_turnout", "precinct turnout", [], comparable_only=False)],
             )
         ]
         written = run_reports(reports, db_with_elections, base_dir=tmp_path)
@@ -744,8 +746,8 @@ class TestRunReportsPrecinctTurnout:
                 key="test",
                 output=Path("out.xlsx"),
                 analyses=[
-                    AnalysisEntry("turnout", "turnout", []),
-                    AnalysisEntry("precinct_turnout", "precinct turnout", []),
+                    AnalysisEntry("turnout", "turnout", [], comparable_only=False),
+                    AnalysisEntry("precinct_turnout", "precinct turnout", [], comparable_only=False),
                 ],
             )
         ]
