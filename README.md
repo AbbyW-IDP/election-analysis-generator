@@ -99,7 +99,7 @@ uv run sync-sources --dry-run
 
 Example output:
 
-```
+```bash
 [dry run] Scanning elections.csv for new elections...
 
   [dry run] Would load: 2026 General Primary (2026-general-primary-2026-04-07.csv)

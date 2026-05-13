@@ -420,7 +420,7 @@ class ElectionDatabase:
 
         if new_names:
             flagged_rows: pd.DataFrame = df[df["contest_name"].isin(new_names)]  # type: ignore[assignment]
-            self._write_flags(flagged_rows, year)
+            self._write_flags(flagged_rows, year, known)
 
         return sorted(new_names)
 
@@ -833,12 +833,16 @@ class ElectionDatabase:
         """Return the best match for *normalized* from the registry, or *normalized* itself.
 
         Strategy:
-          1. Exact match (e.g. already in registry — shouldn't happen here, but safe).
-          2. "FOR " prefix: if the registry has "FOR " + normalized, use that.
-             Many contests drop or add "FOR" inconsistently across years.
-          3. difflib closest match with cutoff 0.6. The top hit is used when it
-             clears the cutoff; otherwise the original normalized string is kept
-             so the reviewer still sees a useful starting point.
+          1. Exact match (already in registry — shouldn't happen here, but safe).
+          2. "FOR " prefix exact match: if the registry has "FOR " + normalized,
+             use that. Many contests drop "FOR" inconsistently across years.
+          3. Fuzzy match via difflib — but only when the normalized name does
+             NOT already start with "FOR ". Names that already have "FOR " are
+             likely legitimate new contests; applying fuzzy matching to them
+             risks suggesting the wrong district (e.g. "SIXTH" instead of
+             "SEVENTH") because structurally similar long strings score very
+             high regardless of cutoff. Names missing "FOR " are more likely
+             normalization artifacts where a registry redirect is useful.
 
         The returned value is what appears in the "Normalized Suggestion" column
         of flags_review.xlsx and in the terminal reviewer.
@@ -846,30 +850,34 @@ class ElectionDatabase:
         if normalized in known:
             return normalized
 
-        # Check FOR-prefix variant before doing fuzzy matching
+        # Exact FOR-prefix match
         with_for = "FOR " + normalized
         if with_for in known:
             return with_for
 
-        known_list = sorted(known)
-        matches = difflib.get_close_matches(normalized, known_list, n=1, cutoff=0.6)
-        if matches:
-            return matches[0]
-
-        # Also try the FOR-prefix variant against fuzzy matching
-        matches_with_for = difflib.get_close_matches(with_for, known_list, n=1, cutoff=0.6)
-        if matches_with_for:
-            return matches_with_for[0]
+        # Fuzzy match only for names that don't already start with "FOR "
+        if not normalized.startswith("FOR "):
+            known_list = sorted(known)
+            matches = difflib.get_close_matches(normalized, known_list, n=1, cutoff=0.6)
+            if matches:
+                return matches[0]
+            matches_with_for = difflib.get_close_matches(with_for, known_list, n=1, cutoff=0.6)
+            if matches_with_for:
+                return matches_with_for[0]
 
         return normalized
 
-    def _write_flags(self, df: pd.DataFrame, year: int) -> None:
+    def _write_flags(self, df: pd.DataFrame, year: int, known: set[str]) -> None:
         """Insert flag rows for all unique contest names in df.
 
         Called internally by _upsert_contests() for the subset of names that
         weren't in the known set. Each unique (contest_name_raw, contest_name)
         pair becomes one flag row. The guard on df.empty means callers don't
         need to check before calling — writing zero flags is a no-op.
+
+        ``known`` must be the set captured at the *start* of the load — before
+        any new names were registered — so that _suggest_contest_name() matches
+        against the pre-load registry rather than the just-expanded one.
 
         The contest_name stored in the flag is passed through
         _suggest_contest_name() first, which uses difflib to find the closest
@@ -879,7 +887,6 @@ class ElectionDatabase:
         """
         if df.empty:
             return
-        known = self.get_known_contest_names()
         flag_df = df[["contest_name_raw", "contest_name"]].drop_duplicates().copy()
         flag_df["year"] = year
         flag_df["contest_name"] = flag_df["contest_name"].apply(

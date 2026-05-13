@@ -631,8 +631,9 @@ class TestSuggestContestName:
     def test_fuzzy_match_close_name(self, db):
         db.register_contest_name("FOR UNITED STATES SENATOR", 2022)
         known = db.get_known_contest_names()
-        # Slight variation — difflib should bridge it
-        result = db._suggest_contest_name("FOR UNITED STATES SENATORS", known)
+        # Names without FOR are fuzzy-matched; names with FOR are returned as-is
+        # to avoid suggesting the wrong district for structurally similar strings
+        result = db._suggest_contest_name("UNITED STATES SENATER", known)
         assert result == "FOR UNITED STATES SENATOR"
 
     def test_no_match_returns_normalized(self, db):
@@ -664,10 +665,28 @@ class TestSuggestContestName:
         assert flags[0]["contest_name"] == "FOR ATTORNEY GENERAL"
 
     def test_flag_suggestion_fuzzy_match(self, db, tmp_path):
-        # Seed known contests
+        # Seed a known contest with the "FOR " prefix
+        db.register_contest_name("FOR UNITED STATES SENATOR", 2022)
+
+        # Load a CSV whose contest name lacks "FOR " and has a minor typo.
+        # "United States Senater" normalizes to "UNITED STATES SENATER" (no FOR),
+        # which should fuzzy-match to "FOR UNITED STATES SENATOR".
+        path = write_csv(
+            tmp_path,
+            ["1,United States Senater (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0"],
+        )
+        config = {"name": "2026 General Primary", "year": 2026, "summary_file": path.name, "election_date": "2026-04-07"}
+        LoadSummary(db).load_csv(path, config)
+
+        flags = db.get_unresolved_flags()
+        assert len(flags) == 1
+        assert flags[0]["contest_name"] == "FOR UNITED STATES SENATOR"
+
+    def test_flag_suggestion_distinct_contest_not_fuzzy_matched(self, db, tmp_path):
+        # A genuinely new contest that happens to share words with a known one
+        # should not be silently remapped — it should suggest itself
         db.register_contest_name("FOR REPRESENTATIVE IN CONGRESS SIXTH CONGRESSIONAL DISTRICT", 2022)
 
-        # Load a new CSV with the seventh district (one word different)
         path = write_csv(
             tmp_path,
             ["1,FOR REPRESENTATIVE IN CONGRESS SEVENTH CONGRESSIONAL DISTRICT (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0"],
@@ -677,5 +696,5 @@ class TestSuggestContestName:
 
         flags = db.get_unresolved_flags()
         assert len(flags) == 1
-        # Fuzzy match should suggest the sixth district as the closest known name
-        assert flags[0]["contest_name"] == "FOR REPRESENTATIVE IN CONGRESS SIXTH CONGRESSIONAL DISTRICT"
+        # Suggestion must be the normalized form of the new name, not the sixth district
+        assert flags[0]["contest_name"] == "FOR REPRESENTATIVE IN CONGRESS SEVENTH CONGRESSIONAL DISTRICT"
