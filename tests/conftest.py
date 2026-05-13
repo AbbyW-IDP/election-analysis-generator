@@ -5,6 +5,7 @@ Shared pytest fixtures for the election_analysis test suite.
 """
 
 from datetime import date
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -56,6 +57,22 @@ def make_candidates_df(rows: list[dict]) -> pd.DataFrame:
         "under_votes": 0.0,
     }
     return pd.DataFrame([{**defaults, **row} for row in rows])
+
+
+def make_elections_config(path: Path, filename: str = "2026-general.csv") -> None:
+    """Write a minimal elections.csv with enough columns for the name to derive correctly."""
+    path.write_text(
+        "name,year,election_date,category,summary_file\n"
+        f"2026 General Primary,2026,2026-04-07,General Primary,{filename}\n"
+    )
+
+
+def make_source_csv(sources_dir: Path, filename: str = "2026-general.csv") -> None:
+    """Write a minimal source CSV that passes column validation."""
+    (sources_dir / filename).write_text(
+        "Contest Name,Party Name,Total Votes\n"
+        "FOR GOVERNOR,D,1000\n"
+    )
 
 
 def seed_election(

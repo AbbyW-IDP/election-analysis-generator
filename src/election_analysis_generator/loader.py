@@ -25,12 +25,15 @@ any new ones.
 
 from __future__ import annotations
 
+import io
+
 import re
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 import openpyxl
+import defusedxml.ElementTree as ET
 import pandas as pd
 
 from .db import ElectionDatabase
@@ -318,13 +321,21 @@ class LoadSummary(_LoaderBase):
         self,
         sources_dir: Path = DEFAULT_SOURCES_DIR,
         config_path: Path = DEFAULT_CONFIG_PATH,
-    ) -> dict[str, tuple[Election, list[str]]]:
+        *,
+        dry_run: bool = False,
+    ) -> dict[str, tuple[str, list[str]]]:
         """Scan elections.csv for elections whose summary CSV hasn't been
         loaded yet and load them.
 
+        Args:
+            sources_dir: Directory containing source CSVs.
+            config_path: Path to elections.csv.
+            dry_run:     If True, report what would be loaded without writing
+                         anything to the database.
+
         Returns:
-            Dict mapping summary filename → (Election, new_unrecognized_names)
-            for each newly loaded file.
+            Dict mapping summary filename -> (election_name, new_unrecognized_names)
+            for each newly loaded (or, in dry-run mode, would-be-loaded) file.
         """
         if not sources_dir.exists():
             raise FileNotFoundError(f"Sources directory not found: {sources_dir}")
@@ -334,7 +345,7 @@ class LoadSummary(_LoaderBase):
             print(f"  No elections found in {config_path}")
             return {}
 
-        results: dict[str, tuple[Election, list[str]]] = {}
+        results: dict[str, tuple[str, list[str]]] = {}
         for entry in configs:
             filename = entry["summary_file"]
             if self._db.is_file_loaded(filename):
@@ -342,17 +353,21 @@ class LoadSummary(_LoaderBase):
 
             existing = self._db.get_election_by_name(entry["name"])
             if existing is not None:
-                if existing.id is not None:
+                if not dry_run and existing.id is not None:
                     self._db.register_file(filename, existing.id)
                 continue
 
             path = sources_dir / filename
             if not path.exists():
-                print(f"  Skipping {filename}: file not found in {sources_dir}")
+                if not dry_run:
+                    print(f"  Skipping {filename}: file not found in {sources_dir}")
                 continue
 
-            election, new_names = self.load_csv(path, entry)
-            results[filename] = (election, new_names)
+            if dry_run:
+                results[filename] = (entry["name"], [])
+            else:
+                election, new_names = self.load_csv(path, entry)
+                results[filename] = (election.name, new_names)
 
         return results
 
@@ -471,10 +486,18 @@ class LoadPrecinctDetail(_LoaderBase):
         """Parse the detail Excel workbook at *path* and insert precinct-level
         results for *election*.
 
+        Both .xlsx and .xls formats are supported, detected by file header
+        rather than extension.
+
         Args:
-            path:     Path to the .xlsx detail file.
+            path:     Path to the .xlsx or .xls detail file.
             election: The Election this file belongs to. Must already have
                       a database id (i.e. the summary CSV was loaded first).
+
+        Raises:
+            ValueError: If election has no database id, or the file extension
+                        is not .xlsx or .xls.
+            FileNotFoundError: If the file does not exist.
         """
         if election.id is None:
             raise ValueError(
@@ -484,12 +507,17 @@ class LoadPrecinctDetail(_LoaderBase):
         if not path.exists():
             raise FileNotFoundError(f"Detail file not found: {path}")
 
-        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        suffix = path.suffix.lower()
+        if suffix not in {".xlsx", ".xls"}:
+            raise ValueError(
+                f"Unsupported detail file format: {path.name!r}. "
+                "Expected .xlsx or .xls."
+            )
+
         contest_id_map = self._build_contest_id_map()
 
-        for ws in wb.worksheets:
-            rows = list(ws.iter_rows(values_only=True))
-            self._process_sheet(rows, election.id, contest_id_map, ws.title)
+        for sheet_name, sheet_rows in _iter_excel_sheets(path):
+            self._process_sheet(sheet_rows, election.id, contest_id_map, sheet_name)
 
         self._db.register_file(path.name, election.id)
 
@@ -576,6 +604,80 @@ class LoadPrecinctDetail(_LoaderBase):
             return
 
         self._db.insert_precinct_results(precinct_rows_to_insert)
+
+
+# ---------------------------------------------------------------------------
+# Excel format detection and sheet iteration
+# ---------------------------------------------------------------------------
+
+_ZIP_MAGIC = b"PK"  # ZIP magic bytes — OOXML (.xlsx) and OOXML-in-.xls files
+
+
+def _iter_excel_sheets(path: Path):
+    """Yield (sheet_name, rows) for every sheet in an Excel file.
+
+    Handles two formats transparently, detected by file header rather
+    than extension:
+
+    * OOXML (.xlsx, or .xls containing a ZIP):
+        read with openpyxl.
+    * XML SpreadsheetML (.xls containing UTF-8 XML):
+        parsed with defusedxml.ElementTree.
+        DuPage's detail exports use this format.
+
+    Yields:
+        Tuples of (sheet_name: str, rows: list[tuple]).
+    """
+    header = path.read_bytes()[:2]
+
+    if header == _ZIP_MAGIC:
+        # OOXML — pass via BytesIO so openpyxl never sees the .xls extension
+        xlsx_wb = openpyxl.load_workbook(
+            io.BytesIO(path.read_bytes()), read_only=True, data_only=True
+        )
+        for ws in xlsx_wb.worksheets:
+            yield ws.title, list(ws.iter_rows(values_only=True))
+
+    else:
+        # XML SpreadsheetML — parse with stdlib ET, no extra dependency needed.
+        # Strip UTF-8 BOM if present before parsing.
+        xml_bytes = path.read_bytes().lstrip(b"\xef\xbb\xbf")
+        yield from _iter_spreadsheetml_sheets(xml_bytes)
+
+
+# XML SpreadsheetML namespaces used by DuPage County exports.
+_SS_NS  = "urn:schemas-microsoft-com:office:spreadsheet"
+_SS     = f"{{{_SS_NS}}}"
+
+
+def _iter_spreadsheetml_sheets(xml_bytes: bytes):
+    """Parse an XML SpreadsheetML workbook and yield (name, rows) per sheet.
+
+    Each row is a tuple of Python-native values (str, int, float, or None).
+    """
+    root = ET.fromstring(xml_bytes)
+    for ws_el in root.iter(f"{_SS}Worksheet"):
+        sheet_name = ws_el.get(f"{_SS}Name", "")
+        rows: list[tuple] = []
+        table = ws_el.find(f"{_SS}Table")
+        if table is None:
+            yield sheet_name, rows
+            continue
+        for row_el in table.iter(f"{_SS}Row"):
+            cells: list = []
+            for cell_el in row_el.iter(f"{_SS}Cell"):
+                data_el = cell_el.find(f"{_SS}Data")
+                if data_el is None or data_el.text is None:
+                    cells.append(None)
+                    continue
+                dtype = data_el.get(f"{_SS}Type", "String")
+                text = data_el.text
+                if dtype == "Number":
+                    cells.append(float(text) if "." in text else int(text))
+                else:
+                    cells.append(text)
+            rows.append(tuple(cells))
+        yield sheet_name, rows
 
 
 def _int_or_zero(value) -> int:

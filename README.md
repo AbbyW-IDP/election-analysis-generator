@@ -6,6 +6,25 @@ Current data covers DuPage County, Illinois (2014, 2018, 2022, 2026), sourced fr
 
 ---
 
+## Quickstart
+
+```bash
+uv sync                    # install dependencies
+uv run sync-sources        # load data and precinct detail, flags any new contest names
+uv run generate-analysis   # writes election_analysis.xlsx
+```
+
+If `sync-sources` reports flagged contest names, resolve them before generating analysis:
+
+```bash
+uv run review-flags        # interactive terminal review
+# or for large batches:
+uv run export-flags        # writes flags_review.xlsx — edit it, then:
+uv run import-flags        # applies your decisions to the database
+```
+
+---
+
 ## Repository structure
 
 ```text
@@ -52,19 +71,9 @@ Current data covers DuPage County, Illinois (2014, 2018, 2022, 2026), sourced fr
 uv sync
 ```
 
-### First-time setup
-
-Add your election CSVs to `sources/` and define them in `elections.csv`, then run:
-
-```bash
-uv run sync-sources
-```
-
-This loads all elections defined in `elections.csv` that haven't been loaded yet and creates `elections.db`.
-
 ---
 
-## Adding new elections
+## Adding elections
 
 1. Place the raw CSV in the `sources/` directory.
 2. Add a row to `elections.csv` (see [Election config](#election-config) below).
@@ -74,9 +83,33 @@ This loads all elections defined in `elections.csv` that haven't been loaded yet
 uv run sync-sources
 ```
 
-`sync-sources` checks `elections.csv` for any elections whose `summary_file` hasn't been loaded yet and loads them. Already-loaded elections are skipped. **Database entries are never removed** even if a source file is later deleted.
+`sync-sources` checks `elections.csv` for any elections and precinct-detail files that haven't been loaded yet and loads them. Already-loaded files are skipped. **Database entries are never removed** even if a source file is later deleted.
+
+Pass `--summary-only` or `--detail-only` to restrict to one type of file.
 
 If any contest names in the new file don't match the registry, they are flagged for review. See [Reviewing flagged contest names](#reviewing-flagged-contest-names) below.
+
+### Previewing before loading
+
+Pass `--dry-run` to see what would be loaded without writing anything to the database:
+
+```bash
+uv run sync-sources --dry-run
+```
+
+Example output:
+
+```bash
+[dry run] Scanning elections.csv for new elections...
+
+  [dry run] Would load: 2026 General Primary (2026-general-primary-2026-04-07.csv)
+
+No changes made.
+```
+
+This is useful for verifying `elections.csv` config before committing to a load, especially since database entries are never removed.
+
+Precinct data (from `detail_file` entries in `elections.csv`) is loaded automatically alongside summary CSVs. It is stored in `candidate_precinct_results` and used by the `precinct_turnout` analysis in `reports.toml`. Totals summed by candidate should equal the corresponding `total_votes` in the summary — this provides a built-in cross-check against the summary CSV.
 
 ---
 
@@ -135,21 +168,7 @@ Plain integers (e.g. `District 1`) are preserved. Original raw contest names are
 
 ## Candidate name corrections
 
-Known misspellings in candidate names are corrected on load via `CANDIDATE_NAME_CORRECTIONS` in `normalize.py`. Each entry is a 2-tuple:
-
-```python
-(wrong_name, correct_name)
-```
-
-Matching is case-insensitive exact string matching. The corrected value is returned exactly as written in the tuple.
-
-Current corrections:
-
-| Wrong name | Correct name |
-| --- | --- |
-| `JB PRITZER` | `JB PRITZKER` |
-
-To add a new correction, add an entry to `CANDIDATE_NAME_CORRECTIONS` in `normalize.py`. Keys must be casefolded (lowercase):
+Known misspellings in candidate names are corrected on load via `CANDIDATE_NAME_CORRECTIONS` in `normalize.py`. Each entry maps a casefolded wrong name to its correct replacement:
 
 ```python
 CANDIDATE_NAME_CORRECTIONS: dict[str, str] = {
@@ -157,6 +176,14 @@ CANDIDATE_NAME_CORRECTIONS: dict[str, str] = {
     "wrong name": "CORRECT NAME",  # new
 }
 ```
+
+Matching is case-insensitive exact string matching. The corrected value is returned exactly as written in the dict.
+
+Current corrections:
+
+| Wrong name | Correct name |
+| --- | --- |
+| `JB PRITZER` | `JB PRITZKER` |
 
 ---
 
@@ -280,8 +307,6 @@ When a flag is marked `mapped`, an entry is added to `contest_name_overrides` li
 | `polling` | Election day polling votes received |
 | `provisional` | Provisional votes received |
 | `total_votes` | Total votes received (sum of all vote methods) |
-
-Unique on `(election_id, contest_id, choice_name, precinct)` — re-loading the same detail file is safe. Precinct totals summed by candidate should equal the corresponding `total_votes` in `candidates`, which provides a built-in cross-check against the summary CSV.
 
 ---
 

@@ -6,7 +6,7 @@ Command-line entry points for the election_analysis package.
 Each function is registered as a [project.scripts] entry point in
 pyproject.toml, so after `uv sync` you can run:
 
-    sync-sources       Load any new elections defined in elections.csv
+    sync-sources       Load new elections and precinct-detail files
     generate-analysis  Write election_analysis.xlsx
     export-flags       Write flags_review.xlsx for spreadsheet review
     import-flags       Apply a reviewed flags_review.xlsx to the DB
@@ -41,53 +41,13 @@ from .flags import (
 
 
 def sync_sources() -> None:
-    """Load any elections defined in elections.csv whose CSV hasn't been loaded yet."""
+    """Load new summary CSVs and precinct-detail files defined in elections.csv."""
     parser = argparse.ArgumentParser(
-        description="Load any elections defined in elections.csv whose CSV hasn't been loaded yet."
-    )
-    parser.add_argument(
-        "sources_dir",
-        nargs="?",
-        type=Path,
-        default=DEFAULT_SOURCES_DIR,
-        help=f"Directory containing source CSVs (default: {DEFAULT_SOURCES_DIR})",
-    )
-    parser.add_argument(
-        "config_path",
-        nargs="?",
-        type=Path,
-        default=DEFAULT_CONFIG_PATH,
-        help=f"Path to elections.csv (default: {DEFAULT_CONFIG_PATH})",
-    )
-    args = parser.parse_args()
-
-    with ElectionDatabase(DEFAULT_DB_PATH) as db:
-        loader = LoadSummary(db)
-        print(f"Scanning {args.config_path} for new elections...")
-        results = loader.sync(sources_dir=args.sources_dir, config_path=args.config_path)
-
-    if not results:
-        print("No new elections found.")
-        return
-
-    any_flags = False
-    for filename, (election, new_names) in results.items():
-        print(f"\n  {election.name} ({filename}): loaded successfully")
-        if new_names:
-            any_flags = True
-            print(f"  [!] {len(new_names)} unrecognized contest name(s):")
-            for name in new_names:
-                print(f"    {name}")
-
-    if any_flags:
-        print("\nRun: review-flags")
-        print(" or: export-flags  (for large batches)")
-
-
-def load_detail() -> None:
-    """Load precinct-detail Excel for any elections defined in elections.csv."""
-    parser = argparse.ArgumentParser(
-        description="Load precinct-detail Excel for any elections defined in elections.csv."
+        description=(
+            "Load any new elections and precinct-detail files defined in elections.csv. "
+            "Both summary CSVs and detail files are synced by default. "
+            "Pass --summary-only or --detail-only to restrict to one type."
+        )
     )
     parser.add_argument(
         "sources_dir",
@@ -103,19 +63,71 @@ def load_detail() -> None:
         default=DEFAULT_CONFIG_PATH,
         help=f"Path to elections.csv (default: {DEFAULT_CONFIG_PATH})",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Preview what summary CSVs would be loaded without writing anything to the database.",
+    )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--summary-only",
+        action="store_true",
+        default=False,
+        help="Only sync summary CSVs; skip precinct-detail files.",
+    )
+    mode.add_argument(
+        "--detail-only",
+        action="store_true",
+        default=False,
+        help="Only sync precinct-detail files; skip summary CSVs.",
+    )
     args = parser.parse_args()
 
+    do_summary = not args.detail_only
+    do_detail  = not args.summary_only
+
     with ElectionDatabase(DEFAULT_DB_PATH) as db:
-        loader = LoadPrecinctDetail(db)
-        print(f"Scanning {args.config_path} for new detail files...")
-        results = loader.sync(sources_dir=args.sources_dir, config_path=args.config_path)
+        if do_summary:
+            prefix = "[dry run] " if args.dry_run else ""
+            print(f"{prefix}Scanning {args.config_path} for new elections...")
+            summary_results = LoadSummary(db).sync(
+                sources_dir=args.sources_dir,
+                config_path=args.config_path,
+                dry_run=args.dry_run,
+            )
+            if not summary_results:
+                print("No new elections found.")
+            else:
+                any_flags = False
+                action = "Would load" if args.dry_run else "loaded successfully"
+                for filename, (election_name, new_names) in summary_results.items():
+                    print(f"{prefix}{election_name} ({filename}): {action}")
+                    if new_names:
+                        any_flags = True
+                        print(f"  [!] {len(new_names)} unrecognized contest name(s):")
+                        for name in new_names:
+                            print(f"    {name}")
+                if args.dry_run:
+                    print("No changes made.")
+                    return
+                if any_flags:
+                    print("Run: review-flags")
+                    print(" or: export-flags  (for large batches)")
 
-    if not results:
-        print("No new detail files found.")
-        return
-
-    for filename, election in results.items():
-        print(f"  {election.name} ({filename}): loaded")
+        if do_detail:
+            if do_summary:
+                print()
+            print(f"Scanning {args.config_path} for new detail files...")
+            detail_results = LoadPrecinctDetail(db).sync(
+                sources_dir=args.sources_dir,
+                config_path=args.config_path,
+            )
+            if not detail_results:
+                print("No new detail files found.")
+            else:
+                for filename, election in detail_results.items():
+                    print(f"  {election.name} ({filename}): loaded")
 
 
 DEFAULT_OUTPUT = Path("election_analysis.xlsx")
