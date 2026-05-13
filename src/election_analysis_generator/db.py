@@ -889,9 +889,10 @@ class ElectionDatabase:
             return
         flag_df = df[["contest_name_raw", "contest_name"]].drop_duplicates().copy()
         flag_df["year"] = year
-        flag_df["contest_name"] = flag_df["contest_name"].apply(
-            lambda n: self._suggest_contest_name(n, known)
-        )
+        flag_df["contest_name"] = [
+            self._suggest_contest_name(n, known)
+            for n in flag_df["contest_name"]
+        ]
         flag_rows = flag_df[["year", "contest_name_raw", "contest_name"]].itertuples(  # type: ignore[union-attr]
             index=False
         )

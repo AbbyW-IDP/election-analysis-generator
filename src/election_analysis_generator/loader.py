@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any
 
 import openpyxl
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 import pandas as pd
 
 from .db import ElectionDatabase
@@ -622,7 +622,7 @@ def _iter_excel_sheets(path: Path):
     * OOXML (.xlsx, or .xls containing a ZIP):
         read with openpyxl.
     * XML SpreadsheetML (.xls containing UTF-8 XML):
-        parsed with the standard-library xml.etree.ElementTree.
+        parsed with defusedxml.ElementTree.
         DuPage's detail exports use this format.
 
     Yields:
