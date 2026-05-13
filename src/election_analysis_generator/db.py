@@ -24,6 +24,7 @@ The database has two kinds of tables:
 For a full description of each table and column, see README.md.
 """
 
+import difflib
 import sqlite3
 from datetime import date
 from pathlib import Path
@@ -828,6 +829,40 @@ class ElectionDatabase:
             "UPDATE contest_flags SET resolved = 1 WHERE id = ?", (flag_id,)
         )
 
+    def _suggest_contest_name(self, normalized: str, known: set[str]) -> str:
+        """Return the best match for *normalized* from the registry, or *normalized* itself.
+
+        Strategy:
+          1. Exact match (e.g. already in registry — shouldn't happen here, but safe).
+          2. "FOR " prefix: if the registry has "FOR " + normalized, use that.
+             Many contests drop or add "FOR" inconsistently across years.
+          3. difflib closest match with cutoff 0.6. The top hit is used when it
+             clears the cutoff; otherwise the original normalized string is kept
+             so the reviewer still sees a useful starting point.
+
+        The returned value is what appears in the "Normalized Suggestion" column
+        of flags_review.xlsx and in the terminal reviewer.
+        """
+        if normalized in known:
+            return normalized
+
+        # Check FOR-prefix variant before doing fuzzy matching
+        with_for = "FOR " + normalized
+        if with_for in known:
+            return with_for
+
+        known_list = sorted(known)
+        matches = difflib.get_close_matches(normalized, known_list, n=1, cutoff=0.6)
+        if matches:
+            return matches[0]
+
+        # Also try the FOR-prefix variant against fuzzy matching
+        matches_with_for = difflib.get_close_matches(with_for, known_list, n=1, cutoff=0.6)
+        if matches_with_for:
+            return matches_with_for[0]
+
+        return normalized
+
     def _write_flags(self, df: pd.DataFrame, year: int) -> None:
         """Insert flag rows for all unique contest names in df.
 
@@ -835,11 +870,21 @@ class ElectionDatabase:
         weren't in the known set. Each unique (contest_name_raw, contest_name)
         pair becomes one flag row. The guard on df.empty means callers don't
         need to check before calling — writing zero flags is a no-op.
+
+        The contest_name stored in the flag is passed through
+        _suggest_contest_name() first, which uses difflib to find the closest
+        match in the registry. This means the "Normalized Suggestion" the
+        reviewer sees is a registry name when a close match exists, rather than
+        the raw normalized string which may differ only slightly.
         """
         if df.empty:
             return
+        known = self.get_known_contest_names()
         flag_df = df[["contest_name_raw", "contest_name"]].drop_duplicates().copy()
         flag_df["year"] = year
+        flag_df["contest_name"] = flag_df["contest_name"].apply(
+            lambda n: self._suggest_contest_name(n, known)
+        )
         flag_rows = flag_df[["year", "contest_name_raw", "contest_name"]].itertuples(  # type: ignore[union-attr]
             index=False
         )

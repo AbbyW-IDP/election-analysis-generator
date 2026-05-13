@@ -10,7 +10,7 @@ Current data covers DuPage County, Illinois (2014, 2018, 2022, 2026), sourced fr
 
 ```bash
 uv sync                    # install dependencies
-uv run sync-sources        # load data, flags any new contest names
+uv run sync-sources        # load data and precinct detail, flags any new contest names
 uv run generate-analysis   # writes election_analysis.xlsx
 ```
 
@@ -83,7 +83,9 @@ uv sync
 uv run sync-sources
 ```
 
-`sync-sources` checks `elections.csv` for any elections whose `summary_file` hasn't been loaded yet and loads them. Already-loaded elections are skipped. **Database entries are never removed** even if a source file is later deleted.
+`sync-sources` checks `elections.csv` for any elections and precinct-detail files that haven't been loaded yet and loads them. Already-loaded files are skipped. **Database entries are never removed** even if a source file is later deleted.
+
+Pass `--summary-only` or `--detail-only` to restrict to one type of file.
 
 If any contest names in the new file don't match the registry, they are flagged for review. See [Reviewing flagged contest names](#reviewing-flagged-contest-names) below.
 
@@ -97,7 +99,7 @@ uv run sync-sources --dry-run
 
 Example output:
 
-```bash
+```
 [dry run] Scanning elections.csv for new elections...
 
   [dry run] Would load: 2026 General Primary (2026-general-primary-2026-04-07.csv)
@@ -107,17 +109,7 @@ No changes made.
 
 This is useful for verifying `elections.csv` config before committing to a load, especially since database entries are never removed.
 
-### Loading precinct-level detail
-
-If an election has a `detail_file` defined in `elections.csv`, load its precinct-level breakdown separately:
-
-```bash
-uv run load-detail
-```
-
-Run this after `sync-sources`. `load-detail` checks `elections.csv` for any `detail_file` entries that haven't been loaded yet and loads them. Already-loaded detail files are skipped.
-
-Precinct data is stored in `candidate_precinct_results` and is used by the `precinct_turnout` analysis in `reports.toml`. Totals summed by candidate should equal the corresponding `total_votes` in the summary — this provides a built-in cross-check against the summary CSV.
+Precinct data (from `detail_file` entries in `elections.csv`) is loaded automatically alongside summary CSVs. It is stored in `candidate_precinct_results` and used by the `precinct_turnout` analysis in `reports.toml`. Totals summed by candidate should equal the corresponding `total_votes` in the summary — this provides a built-in cross-check against the summary CSV.
 
 ---
 
@@ -251,7 +243,7 @@ When a flag is marked `mapped`, an entry is added to `contest_name_overrides` li
 
 **`flags.py`** contains `export_flags()`, `import_flags()`, and `review_flags()` — all flag-management logic in one place.
 
-**`cli.py`** contains the entry points registered in `[project.scripts]`: `sync-sources`, `load-detail`, `generate-analysis`, `export-flags`, `import-flags`, `review-flags`.
+**`cli.py`** contains the entry points registered in `[project.scripts]`: `sync-sources`, `generate-analysis`, `export-flags`, `import-flags`, `review-flags`.
 
 ---
 

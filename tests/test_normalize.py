@@ -18,9 +18,15 @@ class TestNormalizeContestName:
         pytest.param("United States Senator - D*", "UNITED STATES SENATOR", id="d_star"),
         pytest.param("FOR SENATOR - R*",           "FOR SENATOR",           id="r_star"),
         pytest.param("FOR SENATOR - R",            "FOR SENATOR",           id="bare_r"),
+        pytest.param("FOR STATE TREASURER - G",    "FOR STATE TREASURER",   id="bare_g"),
+        pytest.param("FOR STATE TREASURER - G*",   "FOR STATE TREASURER",   id="g_star"),
+        pytest.param("FOR STATE TREASURER - GP",   "FOR STATE TREASURER",   id="gp"),
     ])
     def test_strips_party_suffix(self, raw, expected):
         assert normalize_contest_name(raw) == expected
+
+    def test_strips_trailing_asterisk(self):
+        assert normalize_contest_name("FOR GOVERNOR *") == "FOR GOVERNOR"
 
     @pytest.mark.parametrize("raw, expected", [
         pytest.param(
@@ -33,8 +39,38 @@ class TestNormalizeContestName:
             "FOR JUDGE OF THE CIRCUIT COURT",
             id="vacancy",
         ),
+        pytest.param(
+            "Judge of the Circuit Court, 18th Judicial Circuit - D (Fawell)",
+            "JUDGE OF THE CIRCUIT COURT, EIGHTEENTH JUDICIAL CIRCUIT",
+            id="trailing_paren_hides_party_suffix",
+        ),
     ])
     def test_strips_parentheticals(self, raw, expected):
+        assert normalize_contest_name(raw) == expected
+
+    @pytest.mark.parametrize("raw, expected", [
+        pytest.param(
+            "53 Trails Estates Unexpired 2 Year Park Commissioner (Vote For 0)",
+            "53 TRAILS ESTATES PARK COMMISSIONER",
+            id="mid_name_with_parenthetical",
+        ),
+        pytest.param(
+            "Fox River Grove Unexpired 2 Year Village Trustee (Vote For 1)",
+            "FOX RIVER GROVE VILLAGE TRUSTEE",
+            id="mid_name_fox_river",
+        ),
+        pytest.param(
+            "FOR JUDGE unexpired 6 year - D",
+            "FOR JUDGE",
+            id="trailing_with_party",
+        ),
+        pytest.param(
+            "Addison Fire Protection Unexpired 4 Year Trustee",
+            "ADDISON FIRE PROTECTION TRUSTEE",
+            id="no_parenthetical",
+        ),
+    ])
+    def test_strips_unexpired_year(self, raw, expected):
         assert normalize_contest_name(raw) == expected
 
     @pytest.mark.parametrize("raw, expected", [

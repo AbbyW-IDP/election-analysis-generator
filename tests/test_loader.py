@@ -607,3 +607,75 @@ class TestLoaderSync:
         loader = LoadSummary(db)
         results = loader.sync(sources_dir=sources, config_path=tmp_path / "none.csv")
         assert results == {}
+
+class TestSuggestContestName:
+    """Tests for ElectionDatabase._suggest_contest_name.
+
+    The method is tested indirectly through load_csv: we seed a known contest
+    in the registry, load a new CSV with a similar-but-different contest name,
+    and assert that the flag's suggestion is the registry name rather than the
+    raw normalized string.
+    """
+
+    def test_exact_match_returned_unchanged(self, db):
+        db.register_contest_name("FOR ATTORNEY GENERAL", 2022)
+        known = db.get_known_contest_names()
+        assert db._suggest_contest_name("FOR ATTORNEY GENERAL", known) == "FOR ATTORNEY GENERAL"
+
+    def test_for_prefix_variant_preferred(self, db):
+        db.register_contest_name("FOR ATTORNEY GENERAL", 2022)
+        known = db.get_known_contest_names()
+        # "ATTORNEY GENERAL" (no FOR) should resolve to the registry's "FOR ATTORNEY GENERAL"
+        assert db._suggest_contest_name("ATTORNEY GENERAL", known) == "FOR ATTORNEY GENERAL"
+
+    def test_fuzzy_match_close_name(self, db):
+        db.register_contest_name("FOR UNITED STATES SENATOR", 2022)
+        known = db.get_known_contest_names()
+        # Slight variation — difflib should bridge it
+        result = db._suggest_contest_name("FOR UNITED STATES SENATORS", known)
+        assert result == "FOR UNITED STATES SENATOR"
+
+    def test_no_match_returns_normalized(self, db):
+        db.register_contest_name("FOR ATTORNEY GENERAL", 2022)
+        known = db.get_known_contest_names()
+        # Completely unrelated name — no match above cutoff
+        result = db._suggest_contest_name("FOR SUPERINTENDENT OF PUBLIC INSTRUCTION", known)
+        assert result == "FOR SUPERINTENDENT OF PUBLIC INSTRUCTION"
+
+    def test_empty_registry_returns_normalized(self, db):
+        known = db.get_known_contest_names()
+        assert db._suggest_contest_name("FOR GOVERNOR", known) == "FOR GOVERNOR"
+
+    def test_flag_suggestion_uses_registry_match(self, db, tmp_path):
+        # Seed a known contest in the registry
+        db.register_contest_name("FOR ATTORNEY GENERAL", 2022)
+
+        # Load a new CSV whose contest normalizes to "ATTORNEY GENERAL" (no FOR)
+        path = write_csv(
+            tmp_path,
+            ["1,ATTORNEY GENERAL (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0"],
+        )
+        config = {"name": "2026 General Primary", "year": 2026, "summary_file": path.name, "election_date": "2026-04-07"}
+        LoadSummary(db).load_csv(path, config)
+
+        flags = db.get_unresolved_flags()
+        assert len(flags) == 1
+        # Suggestion should be the registry name, not the raw normalized string
+        assert flags[0]["contest_name"] == "FOR ATTORNEY GENERAL"
+
+    def test_flag_suggestion_fuzzy_match(self, db, tmp_path):
+        # Seed known contests
+        db.register_contest_name("FOR REPRESENTATIVE IN CONGRESS SIXTH CONGRESSIONAL DISTRICT", 2022)
+
+        # Load a new CSV with the seventh district (one word different)
+        path = write_csv(
+            tmp_path,
+            ["1,FOR REPRESENTATIVE IN CONGRESS SEVENTH CONGRESSIONAL DISTRICT (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0"],
+        )
+        config = {"name": "2026 General Primary", "year": 2026, "summary_file": path.name, "election_date": "2026-04-07"}
+        LoadSummary(db).load_csv(path, config)
+
+        flags = db.get_unresolved_flags()
+        assert len(flags) == 1
+        # Fuzzy match should suggest the sixth district as the closest known name
+        assert flags[0]["contest_name"] == "FOR REPRESENTATIVE IN CONGRESS SIXTH CONGRESSIONAL DISTRICT"

@@ -19,6 +19,7 @@ output = "election_analysis.xlsx"
 analysis  = "turnout"
 sheet     = "turnout"
 # no elections → includes all elections in the database
+comparable_only = false
 
 [[reports.primary-comparison.analyses]]
 analysis  = "pct_change_by_party"
@@ -47,8 +48,10 @@ analysis  = "aggregated_csv"
 sheet     = "raw data"
 elections = ["2022 General Primary", "2026 General Primary"]
 # elections omitted → includes all elections in the database
+comparable_only = false
 
 [[reports.primary-comparison.analyses]]
 analysis  = "precinct_turnout"
 sheet     = "precinct turnout"
 elections = ["2026 General Primary"]   # omit to include all elections
+comparable_only = false
