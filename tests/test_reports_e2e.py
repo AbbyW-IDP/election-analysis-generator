@@ -15,13 +15,17 @@ Contest name flags are left unresolved (Option C): the report pipeline
 reads from contest_results directly and does not filter on flag status,
 so unresolved flags do not affect analysis output.
 
-Some tests are marked xfail where a known issue in the codebase is
-expected to cause a failure. These will be removed once the underlying
-bug is fixed.
+Saving reports for manual inspection
+-------------------------------------
+Pass --save-reports to copy the generated Excel files to test-reports/
+in the project root after the test run:
+
+    uv run pytest tests/test_reports_e2e.py --save-reports
 """
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pandas as pd
@@ -40,6 +44,25 @@ FIXTURES_DIR = Path("tests/fixtures")
 SOURCES_DIR = FIXTURES_DIR / "sources"
 ELECTIONS_CSV = FIXTURES_DIR / "elections.csv"
 REPORTS_TOML = FIXTURES_DIR / "reports.toml"
+
+SAVE_DIR = Path("test-reports")
+
+# ---------------------------------------------------------------------------
+# --save-reports CLI flag
+# ---------------------------------------------------------------------------
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--save-reports",
+        action="store_true",
+        default=False,
+        help=(
+            "Copy e2e report output to test-reports/ in the project root "
+            "for manual inspection. Files are overwritten on each run."
+        ),
+    )
+
 
 # ---------------------------------------------------------------------------
 # Session-scoped fixtures: load data once, run reports once
@@ -61,10 +84,12 @@ def e2e_db():
 
 
 @pytest.fixture(scope="session")
-def e2e_report_paths(e2e_db, tmp_path_factory):
+def e2e_report_paths(request: pytest.FixtureRequest, e2e_db, tmp_path_factory):
     """Run all reports defined in the fixture reports.toml once per session.
 
-    Returns the list of Path objects written by run_reports().
+    Returns the list of Path objects written by run_reports(). When
+    --save-reports is passed, also copies each file to test-reports/ with
+    the timestamp stripped so the filename is stable across runs.
     """
     # Arrange
     out_dir = tmp_path_factory.mktemp("e2e_reports")
@@ -72,6 +97,19 @@ def e2e_report_paths(e2e_db, tmp_path_factory):
 
     # Act
     paths = run_reports(configs, e2e_db, base_dir=out_dir)
+
+    # Optionally save for manual inspection
+    if request.config.getoption("--save-reports"):
+        SAVE_DIR.mkdir(exist_ok=True)
+        for src in paths:
+            # run_reports() stamps filenames with a timestamp; strip it so the
+            # saved filename is stable: election_analysis_2026-04-07_1234.xlsx
+            # becomes election_analysis.xlsx
+            stem_base = src.stem.rsplit("_", 2)[0]
+            dest = SAVE_DIR / f"{stem_base}{src.suffix}"
+            shutil.copy2(src, dest)
+            print(f"\n  Saved: {dest}")
+
     return paths
 
 

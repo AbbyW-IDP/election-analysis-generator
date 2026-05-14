@@ -14,6 +14,18 @@ from src.election_analysis_generator.db import ElectionDatabase
 from src.election_analysis_generator.models import Election
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--save-reports",
+        action="store_true",
+        default=False,
+        help=(
+            "Copy e2e report output to test-reports/ in the project root "
+            "for manual inspection. Files are overwritten on each run."
+        ),
+    )
+
+
 @pytest.fixture
 def db():
     """In-memory ElectionDatabase, isolated per test."""
@@ -90,8 +102,8 @@ def seed_election(
     Insert an Election with candidate rows directly into the database.
     Contest names are pre-registered so they aren't flagged as unknown.
 
-    Uses insert_election_with_file() — the same method the production loader
-    calls — so the test helper and loader are guaranteed to stay in sync.
+    Uses insert_election_with_file() -- the same method the production loader
+    calls -- so the test helper and loader are guaranteed to stay in sync.
 
     ballots_cast and registered_voters are election-wide totals (from
     elections.toml in production). Per-contest figures live on candidate rows.
