@@ -33,6 +33,11 @@ addopts = [
     "--cov=src/election_analysis_generator",
     "--cov-report=term-missing",
 ]
+filterwarnings = [
+    # openpyxl cosmetic warning emitted for DuPage County detail files that
+    # lack a default style definition. The files parse correctly; this is noise.
+    "ignore:Workbook contains no default style:UserWarning:openpyxl",
+]
 
 [tool.bandit.assert_used]
 skips = ["*/*_test.py", "*/test_*.py"]

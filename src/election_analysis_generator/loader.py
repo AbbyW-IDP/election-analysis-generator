@@ -631,9 +631,12 @@ def _iter_excel_sheets(path: Path):
     header = path.read_bytes()[:2]
 
     if header == _ZIP_MAGIC:
-        # OOXML — pass via BytesIO so openpyxl never sees the .xls extension
+        # OOXML — pass via BytesIO so openpyxl never sees the .xls extension.
+        # read_only=False is required: some XLSX files produced by DuPage County
+        # only return one row per sheet under read_only=True due to missing row
+        # dimension attributes that openpyxl's read-only parser depends on.
         xlsx_wb = openpyxl.load_workbook(
-            io.BytesIO(path.read_bytes()), read_only=True, data_only=True
+            io.BytesIO(path.read_bytes()), read_only=False, data_only=True
         )
         for ws in xlsx_wb.worksheets:
             yield ws.title, list(ws.iter_rows(values_only=True))
