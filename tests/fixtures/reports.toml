@@ -1,0 +1,34 @@
+# reports.toml (test fixture)
+# ----------------------------
+# Mirrors the structure of the production reports.toml but scoped to the two
+# elections available in tests/fixtures/sources/. Used by test_reports_e2e.py.
+
+[reports.primary-comparison]
+output = "election_analysis.xlsx"
+
+[[reports.primary-comparison.analyses]]
+analysis        = "turnout"
+sheet           = "turnout"
+comparable_only = false
+
+[[reports.primary-comparison.analyses]]
+analysis  = "pct_change_by_party"
+sheet     = "22-26 pct change by party"
+elections = ["2022 General Primary", "2026 General Primary"]
+
+[[reports.primary-comparison.analyses]]
+analysis  = "party_share"
+sheet     = "22-26 party share"
+elections = ["2022 General Primary", "2026 General Primary"]
+
+[[reports.primary-comparison.analyses]]
+analysis        = "aggregated_csv"
+sheet           = "raw data"
+elections       = ["2022 General Primary", "2026 General Primary"]
+comparable_only = false
+
+[[reports.primary-comparison.analyses]]
+analysis        = "precinct_turnout"
+sheet           = "precinct turnout"
+elections       = ["2026 General Primary"]
+comparable_only = false
