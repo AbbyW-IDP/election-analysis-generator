@@ -8,8 +8,11 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+import openpyxl
+
 from src.election_analysis_generator.loader import (
     LoadSummary,
+    LoadPrecinctDetail,
     _derive_election_name,
     _normalize_csv_columns,
     _parse_date,
@@ -216,11 +219,13 @@ class TestLoadElectionsConfig:
         with pytest.raises(ValueError, match="election_date"):
             load_elections_config(p)
 
-    def test_raises_when_summary_file_column_missing(self, tmp_path):
+    def test_loads_election_without_summary_file_column(self, tmp_path):
+        """summary_file is now optional; omitting it produces a valid config."""
         p = tmp_path / "elections.csv"
-        p.write_text("year,election_date\n2026,2026-03-17\n")
-        with pytest.raises(ValueError, match="summary_file"):
-            load_elections_config(p)
+        p.write_text("name,year,election_date\n2026 General Primary,2026,2026-03-17\n")
+        configs = load_elections_config(p)
+        assert len(configs) == 1
+        assert configs[0]["summary_file"] is None
 
     def test_raises_on_invalid_category(self, tmp_path):
         csv = write_config_csv(
@@ -647,11 +652,11 @@ class TestSuggestContestName:
         known = db.get_known_contest_names()
         assert db._suggest_contest_name("FOR GOVERNOR", known) == "FOR GOVERNOR"
 
-    def test_flag_suggestion_uses_registry_match(self, db, tmp_path):
-        # Seed a known contest in the registry
+    def test_for_prefix_match_auto_remaps_without_flag(self, db, tmp_path):
+        # When a normalized name matches a seed name with 'FOR ' prepended,
+        # it is auto-remapped at load time -- no flag is raised.
         db.register_contest_name("FOR ATTORNEY GENERAL", 2022)
 
-        # Load a new CSV whose contest normalizes to "ATTORNEY GENERAL" (no FOR)
         path = write_csv(
             tmp_path,
             ["1,ATTORNEY GENERAL (Vote For 1),Jane Smith,D,5000,100.0,50000,10000,10,10,0,0"],
@@ -659,10 +664,13 @@ class TestSuggestContestName:
         config = {"name": "2026 General Primary", "year": 2026, "summary_file": path.name, "election_date": "2026-04-07"}
         LoadSummary(db).load_csv(path, config)
 
+        # Auto-remapped: no flag, and contest_results uses the canonical name
         flags = db.get_unresolved_flags()
-        assert len(flags) == 1
-        # Suggestion should be the registry name, not the raw normalized string
-        assert flags[0]["contest_name"] == "FOR ATTORNEY GENERAL"
+        assert len(flags) == 0
+        names = db.query(
+            "SELECT DISTINCT contest_name FROM contest_results"
+        )["contest_name"].tolist()
+        assert names == ["FOR ATTORNEY GENERAL"]
 
     def test_flag_suggestion_fuzzy_match(self, db, tmp_path):
         # Seed a known contest with the "FOR " prefix
@@ -698,3 +706,75 @@ class TestSuggestContestName:
         assert len(flags) == 1
         # Suggestion must be the normalized form of the new name, not the sixth district
         assert flags[0]["contest_name"] == "FOR REPRESENTATIVE IN CONGRESS SEVENTH CONGRESSIONAL DISTRICT"
+
+
+# ---------------------------------------------------------------------------
+# LoadPrecinctDetail.load_detail_excel
+# ---------------------------------------------------------------------------
+
+
+def _write_detail_excel(path: Path, contest_name: str, candidate: str = "Jane Smith") -> None:
+    """Write a minimal .xlsx detail file with one sheet."""
+    wb = openpyxl.Workbook()
+    ws = wb.worksheets[0]
+    # Row 1 (rows[0]): contest name in col A
+    ws.cell(row=1, column=1, value=contest_name)
+    # Row 2 (rows[1]): candidate name in col C (tuple index 2)
+    ws.cell(row=2, column=3, value=candidate)
+    # Row 3 (rows[2]): filler header row
+    ws.cell(row=3, column=1, value="Precinct")
+    # Row 4 (rows[3]): precinct data
+    ws.cell(row=4, column=1, value="PRECINCT 001")
+    ws.cell(row=4, column=2, value=1000)  # registered voters
+    ws.cell(row=4, column=3, value=10)    # early (start_col=2)
+    ws.cell(row=4, column=4, value=5)     # vbm
+    ws.cell(row=4, column=5, value=3)     # polling
+    ws.cell(row=4, column=6, value=2)     # provisional
+    ws.cell(row=4, column=7, value=20)    # total
+    wb.save(path)
+
+
+class TestLoadDetailExcel:
+    def test_flags_unrecognized_contest_name(self, db, tmp_path):
+        from tests.conftest import seed_election
+        election = seed_election(db, "2026 General Primary", 2026, [
+            {"contest_name_raw": "FOR GOVERNOR", "choice_name": "Jane Smith"},
+        ])
+        path = tmp_path / "detail.xlsx"
+        _write_detail_excel(path, "COMPLETELY UNKNOWN CONTEST")
+
+        LoadPrecinctDetail(db).load_detail_excel(path, election)
+
+        flags = db.get_unresolved_flags()
+        raw_names = [f["contest_name_raw"] for f in flags]
+        assert "COMPLETELY UNKNOWN CONTEST" in raw_names
+
+    def test_override_applied_inserts_rows(self, db, tmp_path):
+        from tests.conftest import seed_election
+        election = seed_election(db, "2026 General Primary", 2026, [
+            {"contest_name_raw": "FOR GOVERNOR", "choice_name": "Jane Smith"},
+        ])
+        db.add_override("FOR GOVERNOR - ILLINOIS", "FOR GOVERNOR")
+        db._conn.commit()
+
+        path = tmp_path / "detail.xlsx"
+        _write_detail_excel(path, "FOR GOVERNOR - ILLINOIS")
+
+        LoadPrecinctDetail(db).load_detail_excel(path, election)
+
+        rows = db.query("SELECT COUNT(*) AS n FROM candidate_precinct_results").iloc[0]["n"]
+        assert rows > 0
+        flags = db.get_unresolved_flags()
+        assert not any(f["contest_name_raw"] == "FOR GOVERNOR - ILLINOIS" for f in flags)
+
+    def test_registers_file_even_when_flagged(self, db, tmp_path):
+        from tests.conftest import seed_election
+        election = seed_election(db, "2026 General Primary", 2026, [
+            {"contest_name_raw": "FOR GOVERNOR", "choice_name": "Jane Smith"},
+        ])
+        path = tmp_path / "detail.xlsx"
+        _write_detail_excel(path, "COMPLETELY UNKNOWN CONTEST")
+
+        LoadPrecinctDetail(db).load_detail_excel(path, election)
+
+        assert db.is_file_loaded("detail.xlsx")

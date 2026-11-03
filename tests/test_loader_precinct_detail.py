@@ -69,7 +69,7 @@ def _make_xlsx(path: Path) -> None:
     ws.title = "Sheet1"  # type: ignore[union-attr]
     ws.append([_CONTEST_RAW])                    # row 0: contest  # type: ignore[union-attr]
     ws.append([None, None, _CANDIDATE])          # row 1: candidate header  # type: ignore[union-attr]
-    ws.append([])                                # row 2: spacer  # type: ignore[union-attr]
+    ws.append(["Precinct", "Registered Voters", "Early", "Vote by Mail", "Polling", "Provisional", "Total Votes"])  # row 2: column headers  # type: ignore[union-attr]
     ws.append(["Addison 001", 1200, 50, 100, 300, 10, 460])  # row 3: precinct  # type: ignore[union-attr]
     wb.save(path)
 
@@ -83,7 +83,7 @@ def _make_spreadsheetml_xls(path: Path) -> None:
     rows = [
         [_CONTEST_RAW],
         [None, None, _CANDIDATE],
-        [],
+        ["Precinct", "Registered Voters", "Early", "Vote by Mail", "Polling", "Provisional", "Total Votes"],
         ["Addison 001", 1200, 50, 100, 300, 10, 460],
     ]
     lines = [

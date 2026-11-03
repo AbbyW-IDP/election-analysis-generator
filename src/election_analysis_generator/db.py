@@ -25,6 +25,7 @@ For a full description of each table and column, see README.md.
 """
 
 import difflib
+import csv
 import sqlite3
 from datetime import date
 from pathlib import Path
@@ -38,6 +39,7 @@ from .normalize import (
 )
 
 DEFAULT_DB_PATH = Path("elections.db")
+DEFAULT_CONTEST_NAMES_PATH = Path("contest-name-starter.csv")
 
 _SCHEMA = """
     -- One row per election event (e.g. "2022 General Primary")
@@ -47,7 +49,7 @@ _SCHEMA = """
         year                 INTEGER NOT NULL,
         election_date        TEXT,
         results_last_updated TEXT,
-        summary_file         TEXT NOT NULL UNIQUE,
+        summary_file         TEXT UNIQUE,
         category             TEXT NOT NULL DEFAULT '',
         election_type        TEXT NOT NULL DEFAULT '',
         ballots_cast         INTEGER,
@@ -96,7 +98,10 @@ _SCHEMA = """
         contest_name_raw    TEXT NOT NULL,
         contest_name        TEXT NOT NULL,
         resolved            INTEGER NOT NULL DEFAULT 0,
-        flagged_at          TEXT DEFAULT (datetime('now'))
+        flagged_at          TEXT DEFAULT (datetime('now')),
+        source_file         TEXT,
+        source_tab          TEXT,
+        source_row          INTEGER
     );
 
     -- Manual overrides: raw name -> canonical normalized name
@@ -110,6 +115,7 @@ _SCHEMA = """
     CREATE TABLE IF NOT EXISTS source_files (
         filename            TEXT PRIMARY KEY,
         election_id         INTEGER REFERENCES elections(id),
+        file_type           TEXT NOT NULL DEFAULT 'summary',
         loaded_at           TEXT DEFAULT (datetime('now'))
     );
 
@@ -189,8 +195,17 @@ class ElectionDatabase:
         db.close()
     """
 
-    def __init__(self, db_path: Path | str = DEFAULT_DB_PATH) -> None:
+    def __init__(
+        self,
+        db_path: Path | str = DEFAULT_DB_PATH,
+        contest_names_path: Path | None = None,
+    ) -> None:
         self._path = db_path
+        self._contest_names_path = (
+            contest_names_path
+            if contest_names_path is not None
+            else DEFAULT_CONTEST_NAMES_PATH
+        )
         self._conn = sqlite3.connect(db_path)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
@@ -225,6 +240,25 @@ class ElectionDatabase:
         """
         self._conn.executescript(_SCHEMA)
         self._conn.commit()
+        self._seed_contest_name_registry()
+
+    def _seed_contest_name_registry(self) -> None:
+        """Populate contest_name_registry from the seed CSV if it exists.
+
+        Called automatically by _create_schema() on every open. Uses
+        INSERT OR IGNORE so re-opening an existing database is safe.
+        The CSV uses standard CSV quoting; utf-8-sig strips the BOM.
+        No-op if the file does not exist.
+        """
+        if not self._contest_names_path.exists():
+            return
+        with open(self._contest_names_path, encoding="utf-8-sig", newline="") as f:
+            names = [row[0] for row in csv.reader(f) if row and row[0].strip()]
+        self._conn.executemany(
+            "INSERT OR IGNORE INTO contest_name_registry (contest_name, first_seen_year) VALUES (?, 0)",
+            [(name,) for name in names],
+        )
+        self._conn.commit()
 
     # ------------------------------------------------------------------
     # Elections
@@ -236,7 +270,10 @@ class ElectionDatabase:
     # ------------------------------------------------------------------
 
     def insert_election(
-        self, election: Election, df: pd.DataFrame
+        self,
+        election: Election,
+        df: pd.DataFrame,
+        source_file: str | None = None,
     ) -> tuple[Election, list[str]]:
         """
         Insert an Election and all its results from a normalized DataFrame.
@@ -311,13 +348,61 @@ class ElectionDatabase:
 
         known = self.get_known_contest_names()
         normalized_df = self._normalize_df(df, self.get_overrides())
-        new_names = self._upsert_contests(normalized_df, election.year, known)
+        normalized_df = self._apply_for_prefix_remapping(normalized_df, known)
+        new_names = self._upsert_contests(normalized_df, election.year, known, source_file=source_file)
         self._insert_candidates(
             normalized_df, election_id, election.name, election.year
         )
 
         self._conn.commit()
         return election, new_names
+
+    def insert_election_metadata(self, election: "Election") -> "Election":
+        """Insert an election row with metadata only -- no candidate data.
+
+        Used when summary_file is absent in elections.csv and only turnout
+        figures (registered_voters, ballots_cast) are needed.
+
+        Returns the same Election with its new database id populated.
+        """
+        cur = self._conn.execute(
+            """
+            INSERT INTO elections
+                (name, year, election_date, results_last_updated,
+                 summary_file, category, election_type,
+                 ballots_cast, registered_voters)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                election.name,
+                election.year,
+                election.election_date.isoformat() if election.election_date else None,
+                election.results_last_updated.isoformat()
+                if election.results_last_updated else None,
+                election.summary_file,
+                election.category,
+                election.election_type,
+                election.ballots_cast,
+                election.registered_voters,
+            ),
+        )
+        election_id = cur.lastrowid
+        if election_id is None:
+            raise RuntimeError("INSERT INTO elections failed to return a row id")
+        self._conn.commit()
+        from .models import Election as _Election
+        return _Election(
+            id=election_id,
+            name=election.name,
+            year=election.year,
+            election_date=election.election_date,
+            results_last_updated=election.results_last_updated,
+            summary_file=election.summary_file,
+            category=election.category,
+            election_type=election.election_type,
+            ballots_cast=election.ballots_cast,
+            registered_voters=election.registered_voters,
+        )
 
     def insert_election_with_file(
         self,
@@ -339,7 +424,7 @@ class ElectionDatabase:
         Returns:
             Same tuple as insert_election: (election_with_id, new_names).
         """
-        election, new_names = self.insert_election(election, df)
+        election, new_names = self.insert_election(election, df, source_file=filename)
         if election.id is None:
             raise RuntimeError("insert_election did not return an election id")
         self.register_file(filename, election.id)
@@ -375,11 +460,35 @@ class ElectionDatabase:
         df["party"] = df["party"].apply(normalize_party)
         return df
 
+    def _apply_for_prefix_remapping(
+        self, df: pd.DataFrame, known: set[str]
+    ) -> pd.DataFrame:
+        """Auto-remap normalized names matching a seed name with "FOR " prefix.
+
+        E.g. "COUNTY CLERK" -> "FOR COUNTY CLERK" when that name is in the
+        registry. Stores an override per raw name so future loads resolve
+        directly without re-checking.
+        """
+        remapped = False
+        for norm in df["contest_name"].unique():
+            if norm in known:
+                continue
+            candidate = f"FOR {norm}"
+            if candidate in known:
+                mask = df["contest_name"] == norm
+                df = df.copy() if not remapped else df
+                remapped = True
+                df.loc[mask, "contest_name"] = candidate
+                for raw in df.loc[mask, "contest_name_raw"].unique():
+                    self.add_override(raw, candidate)
+        return df
+
     def _upsert_contests(
         self,
         df: pd.DataFrame,
         year: int,
         known: set[str],
+        source_file: str | None = None,
     ) -> list[str]:
         """
         Register all unique contest names from df, flagging any that are new.
@@ -411,16 +520,12 @@ class ElectionDatabase:
         for contest_name in df["contest_name"].unique():
             contest_rows: pd.DataFrame = df[df["contest_name"] == contest_name]  # type: ignore[assignment]
             self._upsert_contest(contest_name, contest_rows)
-            self._conn.execute(
-                "INSERT OR IGNORE INTO contest_name_registry (contest_name, first_seen_year) VALUES (?,?)",
-                (contest_name, year),
-            )
             if contest_name not in known:
                 new_names.append(contest_name)
 
         if new_names:
             flagged_rows: pd.DataFrame = df[df["contest_name"].isin(new_names)]  # type: ignore[assignment]
-            self._write_flags(flagged_rows, year, known)
+            self._write_flags(flagged_rows, year, known, source_file=source_file)
 
         return sorted(new_names)
 
@@ -495,6 +600,8 @@ class ElectionDatabase:
                     return None
             except (TypeError, ValueError):
                 pass
+            if val is None:
+                return None
             return int(val)
 
         params = [
@@ -673,27 +780,58 @@ class ElectionDatabase:
         ).fetchone()
         return row is not None
 
-    def register_file(self, filename: str, election_id: int) -> None:
+    def get_election_coverage(self, election_id: int) -> str:
+        """Return the data coverage label for an election.
+
+        Returns:
+            'turnout_only'         -- no source files loaded
+            'summary'              -- summary CSV loaded, no detail file
+            'summary_and_precinct' -- both summary and precinct detail loaded
+        """
+        rows = self._conn.execute(
+            "SELECT file_type FROM source_files WHERE election_id = ?",
+            (election_id,),
+        ).fetchall()
+        types = {r[0] for r in rows}
+        if not types or types <= {"metadata"}:
+            return "turnout_only"
+        if "detail" in types:
+            return "summary_and_precinct"
+        return "summary"
+
+    def register_file(
+        self,
+        filename: str,
+        election_id: int,
+        file_type: str = "summary",
+    ) -> None:
         """Mark a file as loaded, linked to the given election.
 
         Called by LoadSummary after a successful load so that subsequent
         sync-sources runs skip this file. INSERT OR IGNORE means calling this
         twice for the same filename is safe.
+
+        Args:
+            filename:    The basename of the source file.
+            election_id: The id of the election it was loaded for.
+            file_type:   One of 'summary', 'detail', or 'metadata'.
         """
         self._conn.execute(
-            "INSERT OR IGNORE INTO source_files (filename, election_id) VALUES (?,?)",
-            (filename, election_id),
+            "INSERT OR IGNORE INTO source_files (filename, election_id, file_type)"
+            " VALUES (?,?,?)",
+            (filename, election_id, file_type),
         )
         self._conn.commit()
 
     def get_loaded_files(self) -> list[dict]:
         """Return all loaded source records as a list of dicts.
 
-        Each dict has keys: filename, election_id, loaded_at. Ordered by
-        load time. Used by the CLI to display what has been loaded and when.
+        Each dict has keys: filename, election_id, file_type, loaded_at.
+        Ordered by load time.
         """
         rows = self._conn.execute(
-            "SELECT filename, election_id, loaded_at FROM source_files ORDER BY loaded_at"
+            "SELECT filename, election_id, file_type, loaded_at"
+            " FROM source_files ORDER BY loaded_at"
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -786,6 +924,44 @@ class ElectionDatabase:
             (raw_name, canonical_name, note),
         )
 
+    def remap_by_raw_name(self, raw_name: str, to_name: str) -> int:
+        """Set contest_name and contest_id for all rows matching contest_name_raw.
+
+        Updates both contest_results and candidate_precinct_results. The
+        canonical contests row is created if it does not already exist.
+
+        This is the correct primitive for flag resolution. Because it keys
+        on contest_name_raw rather than the previously stored contest_name,
+        re-importing a corrected flags spreadsheet is always idempotent.
+
+        Args:
+            raw_name: The raw contest name from the source CSV.
+            to_name:  The canonical normalized name to write.
+
+        Returns:
+            The number of contest_results rows updated.
+
+        Does not commit -- the caller is responsible for committing.
+        """
+        self._conn.execute(
+            "INSERT OR IGNORE INTO contests (contest_name, is_legislation) VALUES (?, 0)",
+            (to_name,),
+        )
+        canonical_id: int = self._conn.execute(
+            "SELECT id FROM contests WHERE contest_name = ?", (to_name,)
+        ).fetchone()[0]
+        cursor = self._conn.execute(
+            "UPDATE contest_results SET contest_name = ?, contest_id = ?"
+            " WHERE contest_name_raw = ?",
+            (to_name, canonical_id, raw_name),
+        )
+        self._conn.execute(
+            "UPDATE candidate_precinct_results SET contest_id = ?"
+            " WHERE contest_name_raw = ?",
+            (canonical_id, raw_name),
+        )
+        return cursor.rowcount
+
     # ------------------------------------------------------------------
     # Flags
     #
@@ -809,7 +985,8 @@ class ElectionDatabase:
         export_flags() (spreadsheet export) in flags.py.
         """
         rows = self._conn.execute("""
-            SELECT id, year, contest_name_raw, contest_name
+            SELECT id, year, contest_name_raw, contest_name,
+                   source_file, source_tab, source_row
             FROM contest_flags
             WHERE resolved = 0
             ORDER BY year, contest_name
@@ -827,6 +1004,17 @@ class ElectionDatabase:
         """
         self._conn.execute(
             "UPDATE contest_flags SET resolved = 1 WHERE id = ?", (flag_id,)
+        )
+
+    def resolve_flag_by_raw_name(self, raw_name: str) -> None:
+        """Mark all unresolved flags for raw_name as resolved.
+
+        Called by import_flags() when resolving by raw name instead of ID.
+        Does not commit -- the caller is responsible for committing.
+        """
+        self._conn.execute(
+            "UPDATE contest_flags SET resolved = 1 WHERE contest_name_raw = ? AND resolved = 0",
+            (raw_name,),
         )
 
     def _suggest_contest_name(self, normalized: str, known: set[str]) -> str:
@@ -867,16 +1055,24 @@ class ElectionDatabase:
 
         return normalized
 
-    def _write_flags(self, df: pd.DataFrame, year: int, known: set[str]) -> None:
+    def _write_flags(
+        self,
+        df: pd.DataFrame,
+        year: int,
+        known: set[str],
+        source_file: str | None = None,
+        source_tab: str | None = None,
+        source_row: int | None = None,
+    ) -> None:
         """Insert flag rows for all unique contest names in df.
 
         Called internally by _upsert_contests() for the subset of names that
         weren't in the known set. Each unique (contest_name_raw, contest_name)
         pair becomes one flag row. The guard on df.empty means callers don't
-        need to check before calling — writing zero flags is a no-op.
+        need to check before calling -- writing zero flags is a no-op.
 
-        ``known`` must be the set captured at the *start* of the load — before
-        any new names were registered — so that _suggest_contest_name() matches
+        ``known`` must be the set captured at the *start* of the load -- before
+        any new names were registered -- so that _suggest_contest_name() matches
         against the pre-load registry rather than the just-expanded one.
 
         The contest_name stored in the flag is passed through
@@ -884,20 +1080,52 @@ class ElectionDatabase:
         match in the registry. This means the "Normalized Suggestion" the
         reviewer sees is a registry name when a close match exists, rather than
         the raw normalized string which may differ only slightly.
+
+        ``source_file``, ``source_tab``, and ``source_row`` record where in the
+        input file each flag originated. source_row is 1-based with a header
+        offset of 1 (i.e. df index 0 -> row 2).
         """
         if df.empty:
             return
-        flag_df = df[["contest_name_raw", "contest_name"]].drop_duplicates().copy()
+        if source_row is not None:
+            first_row: dict[str, int] = {
+                raw: source_row
+                for raw in df["contest_name_raw"].unique()
+            }
+        else:
+            first_row = (
+                df.groupby("contest_name_raw", sort=False)
+                .apply(lambda g: int(g.index.min()) + 2)
+                .to_dict()
+            )
+        flag_df = pd.DataFrame(df[["contest_name_raw", "contest_name"]].drop_duplicates())
         flag_df["year"] = year
         flag_df["contest_name"] = [
             self._suggest_contest_name(n, known)
             for n in flag_df["contest_name"]
         ]
-        flag_rows = flag_df[["year", "contest_name_raw", "contest_name"]].itertuples(  # type: ignore[union-attr]
-            index=False
+        flag_df["source_file"] = source_file
+        flag_df["source_tab"] = source_tab
+        flag_df["source_row"] = flag_df["contest_name_raw"].map(first_row)  # type: ignore[arg-type]
+        # Skip raw names already flagged and unresolved to prevent duplicates.
+        # contest_flags has no UNIQUE constraint (for historical compatibility),
+        # so deduplication is done here rather than with INSERT OR IGNORE.
+        existing_raws: set[str] = {
+            r[0]
+            for r in self._conn.execute(
+                "SELECT contest_name_raw FROM contest_flags WHERE resolved = 0"
+            ).fetchall()
+        }
+        flag_df = pd.DataFrame(
+            flag_df[~flag_df["contest_name_raw"].isin(list(existing_raws))]
         )
+        flag_rows = flag_df[
+            ["year", "contest_name_raw", "contest_name", "source_file", "source_tab", "source_row"]
+        ].itertuples(index=False)
         self._conn.executemany(
-            "INSERT INTO contest_flags (year, contest_name_raw, contest_name) VALUES (?,?,?)",
+            """INSERT INTO contest_flags
+               (year, contest_name_raw, contest_name, source_file, source_tab, source_row)
+               VALUES (?,?,?,?,?,?)""",
             flag_rows,
         )
 

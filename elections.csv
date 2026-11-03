@@ -1,7 +1,26 @@
-year,election_date,results_last_updated,category,election_type,summary_file,detail_file,registered_voters,ballots_cast
-2014,3/18/2014,4/7/2014,General Primary,midterm,2014-general-primary-2018-03-18.csv,,576797,110696
-2018,3/20/2018,4/9/2018,General Primary,midterm,2018-general-primary-2018-04-09.csv,,633638,157671
-2022,6/28/2022,7/19/2022,General Primary,midterm,2022-general-primary-2022-07-19.csv,,636341,145051
-2026,3/17/2026,4/7/2026,General Primary,midterm,2026-general-primary-2026-04-07.csv,2026-general-primary-precinct-2026-04-07.xlsx,636822,161738
-2025,4/1/2025,4/22/2025,consolidated,off-year,2025-consolidated-2025-04-01.csv,2025-consolidated-precinct-2025-04-01.xls,626499,144731
-2025,2/25/2025,3/12/2025,consolidated primary,off-year,2025-consolidated-primary-2025-02-25.csv,2025-consolidated-primary-precinct-2025-02-25.xls,112760,7749
+year,election_date,results_last_updated,category,election_type,summary_file,detail_file,registered_voters,ballots_cast,source
+2011,4/5/2011,2/23/2018,consolidated,off-year,,,559603,92004,https://www.dupageresults.gov/IL/DuPage/73891/Web02.192823/#/
+2015,3/20/2012,2/23/2018,general primary,midterm,,,526358,106686,https://www.dupageresults.gov/IL/DuPage/73890/Web02.192823/#/
+2013,2/26/2013,2/23/2018,consolidated primary,off-year,,,1762,69,https://www.dupageresults.gov/IL/DuPage/73888/Web02.192823/#/
+2013,4/9/2013,2/23/2018,consolidated,off-year,,,568194,107559,https://www.dupageresults.gov/IL/DuPage/73887/Web02.192823/#/
+2014,3/18/2014,4/7/2014,General Primary,midterm,2014-general-primary-2018-03-18.csv,,576797,110696,https://www.dupageresults.gov/IL/DuPage/73697/Web02.193546/#/
+2014,11/4/2014,3/13/2018,general,midterm,,,587216,288112,https://www.dupageresults.gov/IL/DuPage/73696/Web02.193546/#/
+2015,4/7/2015,2/23/2018,consolidated,off-year,,,536033,93305,https://www.dupageresults.gov/IL/DuPage/72187/Web02.192823/#/
+2016,3/5/2016,2/23/2018,general primary,presidential,,,572109,289589,https://www.dupageresults.gov/IL/DuPage/71870/Web02.192823/#/
+2016,11/8/2016,3/13/2018,general,presidential,,,614752,434050,https://www.dupageresults.gov/IL/DuPage/71876/Web02.193546/#/
+2017,2/28/2017,2/23/2018,consolidated primary,off-year,,,138368,7328,https://www.dupageresults.gov/IL/DuPage/72566/Web02.192823/#/
+2017,4/4/2017,3/15/2018,consolidated,off-year,,,619849,104018,https://www.dupageresults.gov/IL/DuPage/71873/Web02.194085/#/
+2018,3/20/2018,4/9/2018,General Primary,midterm,2018-general-primary-2018-04-09.csv,,633638,157671,https://www.dupageresults.gov/IL/DuPage/73687/Web02.194526/#/
+2018,11/6/2018,11/27/2018,general,midterm,,,639752,369940,https://www.dupageresults.gov/IL/DuPage/76496/Web02.222611/#/
+2019,4/2/2019,4/23/2019,consolidated,off-year,,,652580,96835,https://www.dupageresults.gov/IL/DuPage/94959/Web02.226438/#/
+2020,3/17/2020,3/31/2020,general primary,presidential,,,615487,157316,https://www.dupageresults.gov/IL/DuPage/101646/Web02.245501/#/
+2020,11/3/2020,11/24/2020,general,presidential,,,641503,491067,https://www.dupageresults.gov/IL/DuPage/106122/web.264614/#/summary
+2021,4/6/2021,4/27/2021,consolidated general,off-year,,,629137,104259,https://www.dupageresults.gov/IL/DuPage/108904/web.276603/#/summary
+2022,6/28/2022,7/19/2022,General Primary,midterm,2022-general-primary-2022-07-19.csv,,636341,145051,https://www.dupageresults.gov/IL/DuPage/114213/web.285569/#/summary
+2022,11/8/2022,11/29/2022,general,midterm,,,616281,343734,https://www.dupageresults.gov/IL/DuPage/115972/web.307039/#/summary
+2023,4/4/2023,4/25/2023,consolidated general,off-year,,,610092,124033,https://www.dupageresults.gov/IL/DuPage/117398/web.307039/#/summary
+2024,3/19/2024,4/15/2024,general primary,presidential,,,617363,125994,https://www.dupageresults.gov/IL/DuPage/120375/web.317647/#/summary
+2024,11/5/2024,11/26/2024,general,presidential,,,627899,464364,https://www.dupageresults.gov/IL/DuPage/122435/web.345435/#/summary
+2025,2/25/2025,3/12/2025,consolidated primary,off-year,2025-consolidated-primary-2025-02-25.csv,2025-consolidated-primary-precinct-2025-02-25.xls,112760,7749,https://www.dupageresults.gov/IL/DuPage/123233/web.345435/#/summary
+2025,4/1/2025,4/22/2025,consolidated,off-year,2025-consolidated-2025-04-01.csv,2025-consolidated-precinct-2025-04-01.xls,626499,144731,https://www.dupageresults.gov/IL/DuPage/123485/web.345435/#/summary
+2026,3/17/2026,4/7/2026,General Primary,midterm,2026-general-primary-2026-04-07.csv,2026-general-primary-precinct-2026-04-07.xlsx,636822,161738,https://www.dupageresults.gov/IL/DuPage/125941/web.345435/#/summary

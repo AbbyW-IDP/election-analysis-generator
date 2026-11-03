@@ -6,7 +6,7 @@ import pytest
 import pandas as pd
 
 from src.election_analysis_generator.analysis import ElectionAnalyzer
-from tests.conftest import seed_election
+from tests.conftest import make_candidates_df, seed_election
 
 
 # ---------------------------------------------------------------------------
@@ -235,36 +235,46 @@ class TestPctChangeByParty:
         )
         assert "REFERENDUM QUESTION 1" not in result["contest"].values
 
-    def test_returns_empty_df_when_no_comparable_contests(self, db):
+    def test_raises_when_no_comparable_contests(self, db):
+        """comparable_only=True (default) raises ValueError when no contest has
+        both parties in both elections."""
         seed_election(
             db,
             "2022 General Primary",
             2022,
-            [
-                {
-                    "contest_name_raw": "FOR SENATOR (Vote For 1)",
-                    "party": "DEM",
-                    "total_votes": 5000,
-                },
-            ],
+            [{"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM", "total_votes": 5000}],
         )
         seed_election(
             db,
             "2026 General Primary",
             2026,
-            [
-                {
-                    "contest_name_raw": "FOR GOVERNOR (Vote For 1)",
-                    "party": "DEM",
-                    "total_votes": 6000,
-                },
-            ],
+            [{"contest_name_raw": "FOR GOVERNOR (Vote For 1)", "party": "DEM", "total_votes": 6000}],
+        )
+        analyzer = ElectionAnalyzer(db)
+        with pytest.raises(ValueError, match="No comparable contests found"):
+            analyzer.pct_change_by_party("2022 General Primary", "2026 General Primary")
+
+    def test_comparable_only_false_returns_empty_df_when_no_shared_contests(self, db):
+        """comparable_only=False returns a non-empty DataFrame even with no shared contests
+        (each election's contests appear with NaN for the missing election)."""
+        seed_election(
+            db,
+            "2022 General Primary",
+            2022,
+            [{"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM", "total_votes": 5000}],
+        )
+        seed_election(
+            db,
+            "2026 General Primary",
+            2026,
+            [{"contest_name_raw": "FOR GOVERNOR (Vote For 1)", "party": "DEM", "total_votes": 6000}],
         )
         analyzer = ElectionAnalyzer(db)
         result = analyzer.pct_change_by_party(
-            "2022 General Primary", "2026 General Primary"
+            "2022 General Primary", "2026 General Primary", comparable_only=False
         )
-        assert len(result) == 0
+        assert isinstance(result, pd.DataFrame)
+        assert len(result) > 0
 
     def test_column_order_dem_before_rep(self, analyzer):
         result = analyzer.pct_change_by_party(
@@ -710,8 +720,6 @@ def _seed_precinct_data(db, election_name, year, rows):
         precinct, registered_voters, early_votes, vote_by_mail,
         polling, provisional, total_votes
     """
-    from tests.conftest import seed_election
-
     # Deduplicate summary rows (one per contest x party x candidate)
     seen = set()
     summary_rows = []
@@ -881,7 +889,6 @@ class TestPrecinctTurnout:
         # Uses insert_election directly to set is_legislation=1 via the no-party path.
         # This is intentional: seed_election pre-registers the contest which bypasses
         # the flag-based legislation inference that this test specifically exercises.
-        from tests.conftest import make_candidates_df
         from src.election_analysis_generator.models import Election
 
         election = Election(
@@ -1077,8 +1084,6 @@ class TestPrecinctTurnout:
     # ------------------------------------------------------------------ #
 
     def test_multiple_precincts_returned(self, db):
-        from tests.conftest import seed_election
-
         election = seed_election(
             db,
             "2026 General Primary",

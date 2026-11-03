@@ -159,6 +159,113 @@ class TestNormalizeContestName:
         assert normalize_contest_name(raw) == expected
 
 
+    @pytest.mark.parametrize("raw, expected", [
+        pytest.param(
+            "Attorney General, State of Illinois - D*",
+            "ATTORNEY GENERAL",
+            id="attorney_general_state_of_illinois",
+        ),
+        pytest.param(
+            "Governor and Lt Governor, State of Illinois - D*",
+            "GOVERNOR AND LT GOVERNOR",
+            id="governor_state_of_illinois",
+        ),
+        pytest.param(
+            "Comptroller, State of Illinois - R",
+            "COMPTROLLER",
+            id="comptroller_state_of_illinois",
+        ),
+        pytest.param(
+            "State Treasurer, State of Illinois - D",
+            "STATE TREASURER",
+            id="treasurer_state_of_illinois",
+        ),
+        pytest.param(
+            "FOR ATTORNEY GENERAL (Vote For 1)",
+            "FOR ATTORNEY GENERAL",
+            id="unaffected_name_without_state_of_illinois",
+        ),
+    ])
+    def test_strips_state_of_illinois_suffix(self, raw, expected):
+        """', State of Illinois' is stripped before party suffix and uppercasing
+        so that 2014/2018 names match the canonical 2022/2026 forms."""
+        assert normalize_contest_name(raw) == expected
+
+
+    @pytest.mark.parametrize("raw, expected", [
+        pytest.param(
+            "Tri-State Fire Protection - General Obligation Bonds (Vote For 1)",
+            "TRI-STATE FIRE PROTECTION - GENERAL OBLIGATION BONDS",
+            id="general_obligation_bonds_not_stripped_as_party_g",
+        ),
+        pytest.param(
+            "Fox River Water Reclamation - General Operations (Vote For 1)",
+            "FOX RIVER WATER RECLAMATION - GENERAL OPERATIONS",
+            id="general_operations_not_stripped_as_party_g",
+        ),
+        pytest.param(
+            "Downers Grove Sanitary District - General Obligation Bonds",
+            "DOWNERS GROVE SANITARY DISTRICT - GENERAL OBLIGATION BONDS",
+            id="general_obligation_no_parenthetical",
+        ),
+    ])
+    def test_general_word_not_stripped_as_party_suffix(self, raw, expected):
+        """'- G' in '- General ...' must not be treated as a Green Party suffix.
+        The party suffix regex must only match when G is the final token, not
+        when 'General' or other G-words follow the dash."""
+        assert normalize_contest_name(raw) == expected
+
+
+    @pytest.mark.parametrize("abbrev,township,precinct", [
+        pytest.param("ADD", "ADDISON",      "004", id="ADD_addison"),
+        pytest.param("BLM", "BLOOMINGDALE", "007", id="BLM_bloomingdale"),
+        pytest.param("LSL", "LISLE",        "012", id="LSL_lisle"),
+        pytest.param("MLT", "MILTON",       "045", id="MLT_milton"),
+        pytest.param("NAP", "NAPERVILLE",   "003", id="NAP_naperville"),
+        pytest.param("WYN", "WAYNE",        "002", id="WYN_wayne"),
+        pytest.param("WNF", "WINFIELD",     "012", id="WNF_winfield"),
+        pytest.param("YRK", "YORK",         "050", id="YRK_york"),
+    ])
+    def test_expands_township_abbreviations_in_committeeperson_names(
+        self, abbrev, township, precinct
+    ):
+        """Abbreviated township names in precinct committeeperson contests are
+        expanded to their full spellings so 2014/2018 names match 2022/2026."""
+        raw = f"Precinct Committeeman {abbrev} {precinct} - D"
+        expected = f"PRECINCT COMMITTEEPERSON {township} {precinct}"
+        assert normalize_contest_name(raw) == expected
+
+    @pytest.mark.parametrize("raw,expected", [
+        pytest.param(
+            "Precinct Committeeman D G 004 - D",
+            "PRECINCT COMMITTEEPERSON DOWNERS GROVE 004",
+            id="D_G_with_space",
+        ),
+        pytest.param(
+            "Precinct Committeeman DG 025 - R",
+            "PRECINCT COMMITTEEPERSON DOWNERS GROVE 025",
+            id="DG_no_space",
+        ),
+    ])
+    def test_expands_downers_grove_abbreviation_variants(self, raw, expected):
+        """Both 'D G' and 'DG' are expanded to 'DOWNERS GROVE'."""
+        assert normalize_contest_name(raw) == expected
+
+    def test_township_abbreviations_not_expanded_outside_committeeperson(self):
+        """Abbreviations like ADD, YRK are only expanded inside committeeperson names."""
+        assert normalize_contest_name("ADDISON TOWNSHIP ASSESSOR") == "ADDISON TOWNSHIP ASSESSOR"
+        assert normalize_contest_name("FOR COUNTY CLERK") == "FOR COUNTY CLERK"
+
+    def test_full_township_spellings_unchanged(self):
+        """Names already using full township spellings are not double-expanded."""
+        assert normalize_contest_name(
+            "FOR PRECINCT COMMITTEEMAN YORK 050 (Vote For 1)"
+        ) == "FOR PRECINCT COMMITTEEPERSON YORK 050"
+        assert normalize_contest_name(
+            "FOR PRECINCT COMMITTEEMAN ADDISON 004 (Vote For 1)"
+        ) == "FOR PRECINCT COMMITTEEPERSON ADDISON 004"
+
+
 class TestOrdinalMap:
     """Tests for the generated ORDINAL_MAP and its helper functions."""
 
@@ -292,3 +399,17 @@ class TestNormalizeCandidateName:
         }
         assert normalize_candidate_name("ROB BLAGOJEVICH", custom) == "ROD BLAGOJEVICH"
         assert normalize_candidate_name("JB PRITZER", custom) == "JB PRITZKER"
+
+
+class TestNormalizeIdempotency:
+    @pytest.mark.parametrize("raw", [
+        pytest.param("FOR ATTORNEY GENERAL (Vote For 1)",                    id="vote_for"),
+        pytest.param("Judge of the Circuit Court, 18th Judicial Circuit - D", id="ordinal_party"),
+        pytest.param("FOR STATE SENATOR - R*",                                id="party_star"),
+        pytest.param("FOR REPRESENTATIVE IN CONGRESS 7TH CONGRESSIONAL DISTRICT", id="abbreviated_ordinal"),
+        pytest.param("FOR JUDGE OF THE CIRCUIT COURT (To fill the vacancy of the Honorable Jane Smith) (Vote For 1)", id="vacancy"),
+    ])
+    def test_idempotent(self, raw):
+        once = normalize_contest_name(raw)
+        twice = normalize_contest_name(once)
+        assert once == twice

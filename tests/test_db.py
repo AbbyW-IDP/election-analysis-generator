@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from src.election_analysis_generator.db import ElectionDatabase, DEFAULT_DB_PATH, _placeholders
+from src.election_analysis_generator.analysis import ElectionAnalyzer
 from src.election_analysis_generator.models import Election
 from tests.conftest import make_candidates_df, seed_election
 
@@ -457,6 +458,526 @@ class TestOverrides:
         assert db.get_overrides()["Old Name"] == "FOR SECOND NAME"
 
 
+
+class TestSeedContestNameRegistry:
+    """Tests for _seed_contest_name_registry() and the removal of auto-registration."""
+
+    @pytest.fixture
+    def seed_db(self, tmp_path):
+        """Return a factory that opens an in-memory DB seeded from a given CSV string."""
+        def _make(contents: str, encoding: str = "utf-8", binary: bytes | None = None):
+            seed_file = tmp_path / "seed.csv"
+            if binary is not None:
+                seed_file.write_bytes(binary)
+            else:
+                seed_file.write_text(contents, encoding=encoding)
+            return ElectionDatabase(":memory:", contest_names_path=seed_file)
+        return _make
+
+    def test_seed_from_file_populates_registry(self, seed_db):
+        """Names in the seed CSV are present in the registry after open."""
+        db = seed_db("FOR ATTORNEY GENERAL\nFOR COMPTROLLER\n")
+        known = db.get_known_contest_names()
+        db.close()
+        assert "FOR ATTORNEY GENERAL" in known
+        assert "FOR COMPTROLLER" in known
+
+    def test_seed_strips_bom(self, seed_db):
+        """A UTF-8 BOM on the first line is stripped correctly."""
+        db = seed_db("", binary=b"\xef\xbb\xbfFOR ATTORNEY GENERAL\nFOR COMPTROLLER\n")
+        known = db.get_known_contest_names()
+        db.close()
+        assert "FOR ATTORNEY GENERAL" in known
+
+    def test_seed_is_noop_when_file_absent(self, tmp_path):
+        """Missing seed file does not raise; registry stays empty."""
+        db = ElectionDatabase(":memory:", contest_names_path=tmp_path / "nonexistent.csv")
+        known = db.get_known_contest_names()
+        db.close()
+        assert known == set()
+
+    def test_seed_is_idempotent(self, seed_db):
+        """Calling _seed_contest_name_registry twice does not duplicate entries."""
+        db = seed_db("FOR ATTORNEY GENERAL\n")
+        db._seed_contest_name_registry()  # second call
+        count = db._conn.execute(
+            "SELECT COUNT(*) FROM contest_name_registry WHERE contest_name = ?",
+            ("FOR ATTORNEY GENERAL",),
+        ).fetchone()[0]
+        db.close()
+        assert count == 1
+
+    def test_seed_skips_blank_lines(self, seed_db):
+        """Blank lines in the seed file are not inserted as empty-string names."""
+        db = seed_db("FOR ATTORNEY GENERAL\n\nFOR COMPTROLLER\n\n")
+        known = db.get_known_contest_names()
+        db.close()
+        assert "" not in known
+        assert len(known) == 2
+
+    def test_seed_unquotes_csv_quoted_fields(self, seed_db):
+        """Names containing commas are CSV-quoted in the file; quotes must be stripped."""
+        db = seed_db(
+            '"DUPAGE COUNTY FOREST PRESERVE COMMISSIONER, DISTRICT 1"\n'
+            "FOR ATTORNEY GENERAL\n"
+        )
+        known = db.get_known_contest_names()
+        db.close()
+        assert "DUPAGE COUNTY FOREST PRESERVE COMMISSIONER, DISTRICT 1" in known
+        assert '"' not in "".join(known)
+
+    @pytest.mark.parametrize("contest_name", [
+        pytest.param("FOR ATTORNEY GENERAL", id="attorney_general"),
+        pytest.param("FOR COMPTROLLER", id="comptroller"),
+        pytest.param("FOR GOVERNOR AND LIEUTENANT GOVERNOR", id="governor"),
+    ])
+    def test_seeded_name_not_flagged_on_load(self, tmp_path, contest_name):
+        """A contest name present in the seed file is not flagged when loaded."""
+        seed_file = tmp_path / "seed.csv"
+        seed_file.write_text(
+            "FOR ATTORNEY GENERAL\nFOR COMPTROLLER\nFOR GOVERNOR AND LIEUTENANT GOVERNOR\n",
+            encoding="utf-8",
+        )
+        fresh_db = ElectionDatabase(":memory:", contest_names_path=seed_file)
+        df = make_candidates_df([{"contest_name_raw": contest_name, "party": "DEM"}])
+        e = Election(
+            id=None, name="2022 General Primary", year=2022,
+            election_date=date(2022, 6, 28), results_last_updated=None,
+            summary_file="test.csv", category="General Primary",
+            election_type="midterm",
+        )
+        fresh_db.insert_election_with_file(e, df, "test.csv")
+        flags = fresh_db.get_unresolved_flags()
+        fresh_db.close()
+        assert flags == []
+
+    def test_load_does_not_auto_register_new_name(self, db, sample_election):
+        """A contest name not in the seed must not be added to the registry on load.
+
+        Previously, _upsert_contests() called INSERT OR IGNORE INTO
+        contest_name_registry for every name. After the change, names only
+        enter the registry via the seed file or explicit flag resolution.
+        The db fixture has no seed file, so the registry starts empty and
+        must stay empty after a load.
+        """
+        df = make_candidates_df(
+            [{"contest_name_raw": "FOR BRAND NEW CONTEST (Vote For 1)", "party": "DEM"}]
+        )
+        db.insert_election(sample_election, df)
+        known = db.get_known_contest_names()
+        assert "FOR BRAND NEW CONTEST" not in known
+
+    def test_load_still_flags_unregistered_name(self, db, sample_election):
+        """A name absent from the registry is still flagged even without auto-registration."""
+        df = make_candidates_df(
+            [{"contest_name_raw": "FOR BRAND NEW CONTEST (Vote For 1)", "party": "DEM"}]
+        )
+        db.insert_election(sample_election, df)
+        flags = db.get_unresolved_flags()
+        assert any(f["contest_name"] == "FOR BRAND NEW CONTEST" for f in flags)
+
+    def test_load_still_inserts_contest_results_for_unregistered_name(
+        self, db, sample_election
+    ):
+        """Flagging does not block the load -- contest_results rows are still written."""
+        df = make_candidates_df(
+            [{"contest_name_raw": "FOR BRAND NEW CONTEST (Vote For 1)", "party": "DEM"}]
+        )
+        db.insert_election(sample_election, df)
+        count = db.query("SELECT COUNT(*) AS n FROM contest_results").iloc[0]["n"]
+        assert count == 1
+
+
+class TestRemapByRawName:
+    """Tests for remap_by_raw_name(), the primitive for flag resolution.
+
+    Sets contest_name and contest_id on all contest_results rows matching
+    contest_name_raw, regardless of what was stored before. Re-importing a
+    corrected flags spreadsheet is idempotent.
+    """
+
+    def test_updates_contest_results_by_raw_name(self, db):
+        """Rows with matching contest_name_raw get the new contest_name."""
+        # Arrange
+        seed_election(db, "2022 General Primary", 2022,
+            [{"contest_name_raw": "OLD RAW NAME", "party": "DEM"},
+             {"contest_name_raw": "OLD RAW NAME", "party": "REP"}],
+            election_date=date(2022, 6, 28))
+
+        # Act
+        db.remap_by_raw_name("OLD RAW NAME", "FOR CANONICAL NAME")
+
+        # Assert
+        names = db.query(
+            "SELECT DISTINCT contest_name FROM contest_results"
+        )["contest_name"].tolist()
+        assert names == ["FOR CANONICAL NAME"]
+
+    def test_updates_contest_id_to_canonical(self, db):
+        """contest_id is updated to point at the canonical contests row."""
+        # Arrange
+        seed_election(db, "2022 General Primary", 2022,
+            [{"contest_name_raw": "OLD RAW NAME", "party": "DEM"}],
+            election_date=date(2022, 6, 28))
+
+        # Act
+        db.remap_by_raw_name("OLD RAW NAME", "FOR CANONICAL NAME")
+
+        # Assert
+        canonical_id = db._conn.execute(
+            "SELECT id FROM contests WHERE contest_name = ?",
+            ("FOR CANONICAL NAME",),
+        ).fetchone()[0]
+        rows = db.query(
+            "SELECT contest_id FROM contest_results WHERE contest_name = ?",
+            params=["FOR CANONICAL NAME"],
+        )
+        assert all(rows["contest_id"] == canonical_id)
+
+    def test_creates_canonical_contest_row_if_absent(self, db):
+        """The canonical contests row is created if it does not exist yet."""
+        # Arrange
+        seed_election(db, "2022 General Primary", 2022,
+            [{"contest_name_raw": "OLD RAW NAME", "party": "DEM"}],
+            election_date=date(2022, 6, 28))
+
+        # Act
+        db.remap_by_raw_name("OLD RAW NAME", "BRAND NEW CANONICAL NAME")
+
+        # Assert
+        row = db._conn.execute(
+            "SELECT id FROM contests WHERE contest_name = ?",
+            ("BRAND NEW CANONICAL NAME",),
+        ).fetchone()
+        assert row is not None
+
+    def test_reuses_canonical_contest_row_if_already_exists(self, db):
+        """If the canonical contests row already exists, its id is preserved."""
+        # Arrange
+        seed_election(db, "2022 General Primary", 2022,
+            [{"contest_name_raw": "OLD RAW NAME", "party": "DEM"},
+             {"contest_name_raw": "FOR CANONICAL NAME", "party": "DEM"}],
+            election_date=date(2022, 6, 28))
+        canonical_id_before = db._conn.execute(
+            "SELECT id FROM contests WHERE contest_name = ?",
+            ("FOR CANONICAL NAME",),
+        ).fetchone()[0]
+
+        # Act
+        db.remap_by_raw_name("OLD RAW NAME", "FOR CANONICAL NAME")
+
+        # Assert
+        canonical_id_after = db._conn.execute(
+            "SELECT id FROM contests WHERE contest_name = ?",
+            ("FOR CANONICAL NAME",),
+        ).fetchone()[0]
+        assert canonical_id_before == canonical_id_after
+
+    def test_returns_count_of_updated_rows(self, db):
+        """Returns the number of contest_results rows updated."""
+        # Arrange
+        seed_election(db, "2022 General Primary", 2022,
+            [{"contest_name_raw": "OLD RAW NAME", "party": "DEM"},
+             {"contest_name_raw": "OLD RAW NAME", "party": "REP"}],
+            election_date=date(2022, 6, 28))
+
+        # Act
+        n = db.remap_by_raw_name("OLD RAW NAME", "FOR CANONICAL NAME")
+
+        # Assert
+        assert n == 2
+
+    def test_returns_zero_when_no_rows_match(self, db):
+        """Returns 0 when no rows have the given contest_name_raw."""
+        # Arrange -- empty db
+
+        # Act
+        n = db.remap_by_raw_name("NONEXISTENT RAW NAME", "FOR CANONICAL NAME")
+
+        # Assert
+        assert n == 0
+
+    def test_idempotent_on_reimport(self, db):
+        """Calling remap_by_raw_name twice with the same args is safe."""
+        # Arrange
+        seed_election(db, "2022 General Primary", 2022,
+            [{"contest_name_raw": "OLD RAW NAME", "party": "DEM"}],
+            election_date=date(2022, 6, 28))
+
+        # Act
+        db.remap_by_raw_name("OLD RAW NAME", "FOR CANONICAL NAME")
+        n = db.remap_by_raw_name("OLD RAW NAME", "FOR CANONICAL NAME")
+
+        # Assert -- second call still touches the rows (raw_name still matches)
+        assert n == 1
+        names = db.query(
+            "SELECT DISTINCT contest_name FROM contest_results"
+        )["contest_name"].tolist()
+        assert names == ["FOR CANONICAL NAME"]
+
+    def test_corrects_previously_wrong_import(self, db):
+        """Remapping to a different canonical name on re-import corrects mistakes."""
+        # Arrange
+        seed_election(db, "2022 General Primary", 2022,
+            [{"contest_name_raw": "OLD RAW NAME", "party": "DEM"}],
+            election_date=date(2022, 6, 28))
+        db.remap_by_raw_name("OLD RAW NAME", "WRONG NAME")
+
+        # Act -- re-import with correction
+        db.remap_by_raw_name("OLD RAW NAME", "FOR CANONICAL NAME")
+
+        # Assert
+        names = db.query(
+            "SELECT DISTINCT contest_name FROM contest_results"
+        )["contest_name"].tolist()
+        assert names == ["FOR CANONICAL NAME"]
+
+    def test_only_affects_rows_matching_raw_name(self, db):
+        """Rows with a different contest_name_raw are not touched."""
+        # Arrange
+        seed_election(db, "2022 General Primary", 2022,
+            [{"contest_name_raw": "OLD RAW NAME", "party": "DEM"},
+             {"contest_name_raw": "OTHER RAW NAME", "party": "DEM"}],
+            election_date=date(2022, 6, 28))
+
+        # Act
+        db.remap_by_raw_name("OLD RAW NAME", "FOR CANONICAL NAME")
+
+        # Assert
+        other = db.query(
+            "SELECT contest_name FROM contest_results WHERE contest_name_raw = ?",
+            params=["OTHER RAW NAME"],
+        )["contest_name"].tolist()
+        assert other == ["OTHER RAW NAME"]
+
+    def test_updates_candidate_precinct_results_contest_id(self, db):
+        """candidate_precinct_results.contest_id is updated to the canonical id."""
+        # Arrange
+        election = seed_election(db, "2022 General Primary", 2022,
+            [{"contest_name_raw": "OLD RAW NAME", "party": "DEM"}],
+            election_date=date(2022, 6, 28))
+        old_cid = db._conn.execute(
+            "SELECT id FROM contests WHERE contest_name = ?", ("OLD RAW NAME",)
+        ).fetchone()[0]
+        db._conn.execute(
+            "INSERT INTO candidate_precinct_results"
+            " (election_id, contest_id, contest_name_raw, choice_name, precinct,"
+            "  registered_voters, early_votes, vote_by_mail, polling, provisional,"
+            "  total_votes)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (election.id, old_cid, "OLD RAW NAME", "Jane Smith", "Precinct 001",
+             1000, 100, 50, 300, 10, 460),
+        )
+        db._conn.commit()
+
+        # Act
+        db.remap_by_raw_name("OLD RAW NAME", "FOR CANONICAL NAME")
+
+        # Assert
+        canonical_id = db._conn.execute(
+            "SELECT id FROM contests WHERE contest_name = ?",
+            ("FOR CANONICAL NAME",),
+        ).fetchone()[0]
+        precinct_cids = db._conn.execute(
+            "SELECT DISTINCT contest_id FROM candidate_precinct_results"
+        ).fetchall()
+        assert all(row[0] == canonical_id for row in precinct_cids)
+
+    @pytest.mark.parametrize("raw_name,expected_name", [
+        pytest.param(
+            "Attorney General, State of Illinois - D*",
+            "FOR ATTORNEY GENERAL",
+            id="attorney_general_state_of_illinois",
+        ),
+        pytest.param(
+            "Comptroller, State of Illinois - R",
+            "FOR COMPTROLLER",
+            id="comptroller_state_of_illinois",
+        ),
+        pytest.param(
+            "State Treasurer - D",
+            "FOR TREASURER",
+            id="treasurer_missing_for_prefix",
+        ),
+    ])
+    def test_cross_year_name_remapping(self, db, raw_name, expected_name):
+        """Realistic cross-year name pairs remap correctly end-to-end.
+
+        raw_name is the raw contest name from an older CSV. expected_name is
+        the canonical form used in later elections. remap_by_raw_name() sets
+        the stored contest_name directly by raw_name, so it works correctly
+        on first import and on re-import with corrections.
+        """
+        # Arrange
+        seed_election(db, "2014 General Primary", 2014,
+            [{"contest_name_raw": raw_name, "party": "DEM"},
+             {"contest_name_raw": raw_name, "party": "REP"}],
+            election_date=date(2014, 3, 18))
+        seed_election(db, "2022 General Primary", 2022,
+            [{"contest_name_raw": expected_name, "party": "DEM"},
+             {"contest_name_raw": expected_name, "party": "REP"}],
+            election_date=date(2022, 6, 28))
+
+        # Act
+        n = db.remap_by_raw_name(raw_name, expected_name)
+
+        # Assert
+        assert n == 2  # DEM + REP for 2014
+        distinct = db.query(
+            "SELECT DISTINCT contest_name FROM contest_results"
+        )["contest_name"].tolist()
+        assert distinct == [expected_name]
+
+
+class TestForPrefixRemapping:
+    """Tests for _apply_for_prefix_remapping(), called during insert_election().
+
+    The method auto-maps normalized names that match a seed name when prefixed
+    with "FOR ". For example, "COUNTY CLERK" -> "FOR COUNTY CLERK" when
+    "FOR COUNTY CLERK" is in the registry.
+    """
+
+    def _make_db_with_seed(self, db, *seed_names: str) -> None:
+        """Register names directly into contest_name_registry."""
+        for name in seed_names:
+            db._conn.execute(
+                "INSERT OR IGNORE INTO contest_name_registry"
+                " (contest_name, first_seen_year) VALUES (?, 0)",
+                (name,),
+            )
+        db._conn.commit()
+
+    @pytest.mark.parametrize("raw,expected", [
+        pytest.param(
+            "County Clerk - D", "FOR COUNTY CLERK",
+            id="party_suffix_stripped",
+        ),
+        pytest.param(
+            "County Clerk - R*", "FOR COUNTY CLERK",
+            id="party_suffix_with_asterisk",
+        ),
+        pytest.param(
+            "Comptroller (Vote For 1)", "FOR COMPTROLLER",
+            id="vote_for_stripped",
+        ),
+    ])
+    def test_remaps_to_for_prefixed_canonical_name(
+        self, db, sample_election, raw, expected
+    ):
+        """Normalized names that match 'FOR <name>' in the registry are remapped."""
+        # Arrange
+        canonical = expected
+        self._make_db_with_seed(db, canonical)
+        df = make_candidates_df([{"contest_name_raw": raw, "party": "DEM"}])
+
+        # Act
+        db.insert_election(sample_election, df)
+
+        # Assert
+        names = [
+            r[0]
+            for r in db._conn.execute(
+                "SELECT DISTINCT contest_name FROM contest_results"
+            ).fetchall()
+        ]
+        assert names == [canonical]
+
+    def test_remapped_name_not_flagged(self, db, sample_election):
+        """A name remapped via FOR-prefix does not produce a flag."""
+        # Arrange
+        self._make_db_with_seed(db, "FOR COUNTY CLERK")
+        df = make_candidates_df(
+            [{"contest_name_raw": "County Clerk - D", "party": "DEM"}]
+        )
+
+        # Act
+        db.insert_election(sample_election, df)
+
+        # Assert
+        assert db.get_unresolved_flags() == []
+
+    def test_override_stored_for_future_loads(self, db, sample_election):
+        """An override is written so future loads use the canonical name directly."""
+        # Arrange
+        self._make_db_with_seed(db, "FOR COUNTY CLERK")
+        df = make_candidates_df(
+            [{"contest_name_raw": "County Clerk - D", "party": "DEM"}]
+        )
+
+        # Act
+        db.insert_election(sample_election, df)
+
+        # Assert
+        assert db.get_overrides().get("County Clerk - D") == "FOR COUNTY CLERK"
+
+    def test_known_name_not_remapped(self, db, sample_election):
+        """A name already in the registry is left unchanged."""
+        # Arrange
+        self._make_db_with_seed(db, "FOR SENATOR", "SENATOR")
+        df = make_candidates_df(
+            [{"contest_name_raw": "FOR SENATOR (Vote For 1)", "party": "DEM"}]
+        )
+
+        # Act
+        db.insert_election(sample_election, df)
+
+        # Assert
+        names = [
+            r[0]
+            for r in db._conn.execute(
+                "SELECT DISTINCT contest_name FROM contest_results"
+            ).fetchall()
+        ]
+        assert names == ["FOR SENATOR"]
+
+    def test_unknown_name_with_no_for_match_still_flagged(self, db, sample_election):
+        """A name with no FOR-prefix match in the registry is still flagged."""
+        # Arrange
+        self._make_db_with_seed(db, "FOR COUNTY CLERK")
+        df = make_candidates_df(
+            [{"contest_name_raw": "SOME BRAND NEW CONTEST", "party": "DEM"}]
+        )
+
+        # Act
+        db.insert_election(sample_election, df)
+
+        # Assert
+        assert len(db.get_unresolved_flags()) == 1
+
+    def test_second_load_of_same_raw_name_uses_stored_override(self, db):
+        """After the first load stores an override, subsequent loads use it directly."""
+        # Arrange
+        self._make_db_with_seed(db, "FOR COUNTY CLERK")
+        election_1 = Election(
+            id=None, name="2014 General Primary", year=2014,
+            election_date=date(2014, 3, 18), results_last_updated=None,
+            summary_file="2014.csv", category="General Primary",
+            election_type="midterm",
+        )
+        election_2 = Election(
+            id=None, name="2018 General Primary", year=2018,
+            election_date=date(2018, 3, 20), results_last_updated=None,
+            summary_file="2018.csv", category="General Primary",
+            election_type="midterm",
+        )
+        df = make_candidates_df(
+            [{"contest_name_raw": "County Clerk - D", "party": "DEM"}]
+        )
+
+        # Act
+        db.insert_election(election_1, df)
+        db.insert_election(election_2, df)
+
+        # Assert
+        names = [
+            r[0]
+            for r in db._conn.execute(
+                "SELECT DISTINCT contest_name FROM contest_results"
+            ).fetchall()
+        ]
+        assert names == ["FOR COUNTY CLERK"]
+        assert db.get_unresolved_flags() == []
+
 class TestFlags:
     def test_empty_initially(self, db):
         assert db.get_unresolved_flags() == []
@@ -822,3 +1343,151 @@ class TestInsertCandidatesRefactor:
         db.insert_election(sample_election, df)
         count = db.query("SELECT COUNT(*) AS n FROM contest_results").iloc[0]["n"]
         assert count == n
+
+
+class TestTurnoutOnlyElections:
+    """Tests for elections loaded with metadata only (no summary CSV)."""
+
+    def test_insert_election_with_no_summary_file(self, db):
+        """An election can be inserted with summary_file=None."""
+        # Arrange
+        election = Election(
+            id=None,
+            name="2025 consolidated",
+            year=2025,
+            election_date=date(2025, 4, 1),
+            results_last_updated=None,
+            summary_file=None,
+            category="Consolidated",
+            election_type="midterm",
+            registered_voters=636822,
+            ballots_cast=50000,
+        )
+
+        # Act
+        inserted = db.insert_election_metadata(election)
+
+        # Assert
+        assert inserted.id is not None
+        assert inserted.summary_file is None
+
+    def test_turnout_only_election_appears_in_list_elections(self, db):
+        """A metadata-only election is returned by list_elections()."""
+        # Arrange
+        from src.election_analysis_generator.models import Election
+        election = Election(
+            id=None, name="2025 consolidated", year=2025,
+            election_date=date(2025, 4, 1), results_last_updated=None,
+            summary_file=None, category="Consolidated", election_type="midterm",
+            registered_voters=636822, ballots_cast=50000,
+        )
+        db.insert_election_metadata(election)
+
+        # Act
+        analyzer = ElectionAnalyzer(db)
+        elections = analyzer.list_elections()
+
+        # Assert
+        assert "2025 consolidated" in elections["name"].tolist()
+
+    def test_turnout_works_for_metadata_only_election(self, db):
+        """turnout() returns correct figures for a metadata-only election."""
+        # Arrange
+        from src.election_analysis_generator.models import Election
+        from src.election_analysis_generator.analysis import ElectionAnalyzer
+        election = Election(
+            id=None, name="2025 consolidated", year=2025,
+            election_date=date(2025, 4, 1), results_last_updated=None,
+            summary_file=None, category="Consolidated", election_type="midterm",
+            registered_voters=636822, ballots_cast=50000,
+        )
+        db.insert_election_metadata(election)
+
+        # Act
+        analyzer = ElectionAnalyzer(db)
+        result = analyzer.turnout()
+
+        # Assert
+        assert result.loc["Registered", "2025 consolidated"] == 636822
+        assert result.loc["Ballots Cast", "2025 consolidated"] == 50000
+
+    def test_register_file_with_file_type(self, db):
+        """register_file accepts a file_type parameter."""
+        # Arrange
+        election = seed_election(db, "2022 General Primary", 2022, [{}],
+            election_date=date(2022, 6, 28))
+
+        # Act
+        db.register_file("2022-general-primary.csv", election.id, file_type="summary")
+        db.register_file("2022-general-precinct.xlsx", election.id, file_type="detail")
+
+        # Assert
+        files = db.get_loaded_files()
+        types = {f["filename"]: f["file_type"] for f in files}
+        assert types["2022-general-primary.csv"] == "summary"
+        assert types["2022-general-precinct.xlsx"] == "detail"
+
+    def test_get_election_coverage_turnout_only(self, db):
+        """get_election_coverage returns 'turnout_only' when no files registered."""
+        # Arrange
+        from src.election_analysis_generator.models import Election
+        election = Election(
+            id=None, name="2025 consolidated", year=2025,
+            election_date=date(2025, 4, 1), results_last_updated=None,
+            summary_file=None, category="Consolidated", election_type="midterm",
+            registered_voters=636822, ballots_cast=50000,
+        )
+        inserted = db.insert_election_metadata(election)
+
+        # Act
+        coverage = db.get_election_coverage(inserted.id)
+
+        # Assert
+        assert coverage == "turnout_only"
+
+    def test_get_election_coverage_metadata_sentinel(self, db):
+        """get_election_coverage returns 'turnout_only' when only a metadata sentinel is registered."""
+        # Arrange
+        from src.election_analysis_generator.models import Election
+        election = Election(
+            id=None, name="2025 consolidated", year=2025,
+            election_date=date(2025, 4, 1), results_last_updated=None,
+            summary_file=None, category="Consolidated", election_type="midterm",
+            registered_voters=636822, ballots_cast=50000,
+        )
+        inserted = db.insert_election_metadata(election)
+        assert inserted.id is not None
+        db.register_file(f"__metadata__{election.name}", inserted.id, file_type="metadata")
+
+        # Act
+        coverage = db.get_election_coverage(inserted.id)
+
+        # Assert
+        assert coverage == "turnout_only"
+
+    def test_get_election_coverage_summary(self, db):
+        """get_election_coverage returns 'summary' when only summary file loaded."""
+        # Arrange
+        election = seed_election(db, "2022 General Primary", 2022, [{}],
+            election_date=date(2022, 6, 28))
+        db.register_file("2022-general-primary.csv", election.id, file_type="summary")
+
+        # Act
+        coverage = db.get_election_coverage(election.id)
+
+        # Assert
+        assert coverage == "summary"
+
+    def test_get_election_coverage_summary_and_precinct(self, db):
+        """get_election_coverage returns 'summary_and_precinct' when both loaded."""
+        # Arrange
+        election = seed_election(db, "2022 General Primary", 2022, [{}],
+            election_date=date(2022, 6, 28))
+        db.register_file("2022-general-primary.csv", election.id, file_type="summary")
+        db.register_file("2022-general-precinct.xlsx", election.id, file_type="detail")
+
+        # Act
+        coverage = db.get_election_coverage(election.id)
+
+        # Assert
+        assert coverage == "summary_and_precinct"

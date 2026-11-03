@@ -127,7 +127,9 @@ class ElectionAnalyzer:
         """
         Return contests where every party got at least 1 vote in each election.
 
-        This is used to compare contests across elections.
+        A contest is comparable if DEM and REP both appear with votes > 0 in
+        every election in election_ids. Elections where a contest is absent
+        count against it -- the contest must span all elections being compared.
         """
         required = len(election_ids) * len(parties)
 
@@ -171,7 +173,9 @@ class ElectionAnalyzer:
                              election, with NaN where data is missing.
 
         Raises:
-            ValueError: if election_a and election_b resolve to the same election.
+            ValueError: if election_a and election_b resolve to the same election,
+                        or if comparable_only=True and no contests have both parties
+                        present with votes > 0 in both elections.
 
         Returns:
             DataFrame with columns:
@@ -197,6 +201,12 @@ class ElectionAnalyzer:
             contests = set(totals["contest_name"].drop_duplicates().tolist())
 
         if not contests:
+            if comparable_only:
+                raise ValueError(
+                    f"No comparable contests found between {a.name!r} and "
+                    f"{b.name!r}. Both parties must have votes in the same "
+                    f"contests. Try comparable_only=False to include all contests."
+                )
             return pd.DataFrame(columns=["contest"])
 
         df = totals[totals["contest_name"].isin(list(contests))].copy()
@@ -253,8 +263,10 @@ class ElectionAnalyzer:
                              election, with NaN where data is missing.
 
         Raises:
-            ValueError: if fewer than 2 elections are provided, or if any
-                        election appears more than once.
+            ValueError: if fewer than 2 elections are provided, if any election
+                        appears more than once, or if comparable_only=True and no
+                        contests have both parties present with votes > 0 in every
+                        election.
 
         Returns:
             DataFrame with columns:
@@ -290,6 +302,13 @@ class ElectionAnalyzer:
             contests = set(totals["contest_name"].drop_duplicates().tolist())
 
         if not contests:
+            if comparable_only:
+                election_names = ", ".join(repr(e.name) for e in resolved)
+                raise ValueError(
+                    f"No comparable contests found across elections: {election_names}. "
+                    f"Both parties must have votes in the same contests in every "
+                    f"election. Try comparable_only=False to include all contests."
+                )
             return pd.DataFrame(columns=["contest"])
 
         df = totals[totals["contest_name"].isin(list(contests))].copy()

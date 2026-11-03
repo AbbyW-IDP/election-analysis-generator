@@ -11,6 +11,7 @@ Current data covers DuPage County, Illinois (2014, 2018, 2022, 2026), sourced fr
 ```bash
 uv sync                    # install dependencies
 uv run sync-sources        # load data and precinct detail, flags any new contest names
+uv run status              # confirm what loaded
 uv run generate-analysis   # writes election_analysis.xlsx
 ```
 
@@ -51,7 +52,9 @@ uv run import-flags        # applies your decisions to the database
     ├── test_db.py
     ├── test_loader.py
     ├── test_analysis.py
-    └── test_normalize.py
+    ├── test_cli.py
+    ├── test_normalize.py
+    └── test_reports_e2e.py     # End-to-end report generation tests (uses tests/fixtures/)
 ```
 
 > `elections.db` is generated locally and is not committed to the repository.
@@ -110,6 +113,40 @@ No changes made.
 This is useful for verifying `elections.csv` config before committing to a load, especially since database entries are never removed.
 
 Precinct data (from `detail_file` entries in `elections.csv`) is loaded automatically alongside summary CSVs. It is stored in `candidate_precinct_results` and used by the `precinct_turnout` analysis in `reports.toml`. Totals summed by candidate should equal the corresponding `total_votes` in the summary — this provides a built-in cross-check against the summary CSV.
+
+---
+
+## Checking database status
+
+```bash
+uv run status
+```
+
+Prints a summary of the current database state:
+
+```bash
+Elections loaded:  4
+  2014 General Primary  (2014-03-18)
+  2018 General Primary  (2018-03-20)
+  2022 General Primary  (2022-06-28)
+  2026 General Primary  (2026-04-07)
+
+Unresolved flags:  3   <- run review-flags or export-flags
+```
+
+If the database is empty, `status` prints first-run guidance instead.
+
+---
+
+## Loading precinct detail
+
+Precinct-level detail files (the `detail_file` column in `elections.csv`) are loaded automatically by `sync-sources`. If you need to load or reload a detail file independently — for example, after receiving an updated precinct breakdown for an already-loaded election — use:
+
+```bash
+uv run load-detail
+```
+
+This scans `elections.csv` for any `detail_file` entries that haven't been loaded yet and loads them, without touching the summary election data. Already-loaded detail files are skipped.
 
 ---
 
@@ -243,7 +280,7 @@ When a flag is marked `mapped`, an entry is added to `contest_name_overrides` li
 
 **`flags.py`** contains `export_flags()`, `import_flags()`, and `review_flags()` — all flag-management logic in one place.
 
-**`cli.py`** contains the entry points registered in `[project.scripts]`: `sync-sources`, `generate-analysis`, `export-flags`, `import-flags`, `review-flags`.
+**`cli.py`** contains the entry points registered in `[project.scripts]`: `status`, `sync-sources`, `load-detail`, `generate-analysis`, `export-flags`, `import-flags`, `review-flags`.
 
 ---
 
@@ -314,6 +351,12 @@ When a flag is marked `mapped`, an entry is added to `contest_name_overrides` li
 
 ```bash
 uv run pytest
+```
+
+The end-to-end report tests (`test_reports_e2e.py`) load real fixture CSVs and the precinct detail Excel once per session and verify the full pipeline through to Excel output. Pass `--save-reports` to copy the generated files to `test-reports/` for manual inspection:
+
+```bash
+uv run pytest tests/test_reports_e2e.py --save-reports
 ```
 
 ---

@@ -44,7 +44,7 @@ DEFAULT_SOURCES_DIR = Path("sources")
 DEFAULT_CONFIG_PATH = Path("elections.csv")
 
 VALID_CATEGORIES = frozenset(
-    {"consolidated", "consolidated primary", "general", "general primary"}
+    {"consolidated", "consolidated primary", "consolidated general", "general", "general primary"}
 )
 VALID_ELECTION_TYPES = frozenset({"presidential", "midterm", "off-year"})
 
@@ -74,7 +74,7 @@ _NO_CANDIDATE_MARKERS = frozenset(
 # elections.csv column names
 # ---------------------------------------------------------------------------
 # Required columns in elections.csv.
-_CONFIG_REQUIRED = frozenset({"year", "election_date", "summary_file"})
+_CONFIG_REQUIRED = frozenset({"year", "election_date"})
 
 # Optional columns and their coercion functions.
 # Absent columns and blank cells both produce None.
@@ -266,10 +266,11 @@ def load_elections_config(config_path: Path = DEFAULT_CONFIG_PATH) -> list[dict]
                 f"Row {int(row_index) + 1}: 'election_date' is required and must not be blank."  # type: ignore[arg-type]
             )
 
+        summary_file_raw = str(row.get("summary_file", "")).strip()
         entry: dict = {
             "year":          year_val,
             "election_date": election_date_raw,
-            "summary_file":  str(row["summary_file"]).strip(),
+            "summary_file":  summary_file_raw if summary_file_raw else None,
         }
 
         for col, coerce_fn in _CONFIG_OPTIONAL.items():
@@ -348,13 +349,26 @@ class LoadSummary(_LoaderBase):
         results: dict[str, tuple[str, list[str]]] = {}
         for entry in configs:
             filename = entry["summary_file"]
+
+            # Turnout-only election: no summary file configured
+            if filename is None:
+                existing = self._db.get_election_by_name(entry["name"])
+                if existing is not None:
+                    continue
+                if not dry_run:
+                    self._load_metadata_only(entry)
+                    results[entry["name"]] = (entry["name"], [])
+                else:
+                    results[entry["name"]] = (entry["name"], [])
+                continue
+
             if self._db.is_file_loaded(filename):
                 continue
 
             existing = self._db.get_election_by_name(entry["name"])
             if existing is not None:
                 if not dry_run and existing.id is not None:
-                    self._db.register_file(filename, existing.id)
+                    self._db.register_file(filename, existing.id, file_type="summary")
                 continue
 
             path = sources_dir / filename
@@ -370,6 +384,39 @@ class LoadSummary(_LoaderBase):
                 results[filename] = (election.name, new_names)
 
         return results
+
+    def _load_metadata_only(self, entry: dict) -> None:
+        """Insert an election with metadata only -- no candidate data.
+
+        Called when summary_file is absent in elections.csv. The election
+        is inserted into the elections table with turnout figures only
+        (registered_voters, ballots_cast). No contest or candidate rows
+        are created. A sentinel entry is written to source_files with
+        file_type='metadata' so is_file_loaded checks work correctly on
+        re-sync.
+        """
+        from .models import Election
+        election_date = _parse_date(entry["election_date"])
+        election = Election(
+            id=None,
+            name=entry["name"],
+            year=entry["year"],
+            election_date=election_date,
+            results_last_updated=None,
+            summary_file=None,
+            category=entry.get("category") or "",
+            election_type=entry.get("election_type") or "",
+            ballots_cast=entry.get("ballots_cast"),
+            registered_voters=entry.get("registered_voters"),
+        )
+        inserted = self._db.insert_election_metadata(election)
+        if inserted.id is not None:
+            # Sentinel so re-sync skips this election
+            self._db.register_file(
+                f"__metadata__{entry['name']}",
+                inserted.id,
+                file_type="metadata",
+            )
 
     def load_csv(
         self,
@@ -515,11 +562,26 @@ class LoadPrecinctDetail(_LoaderBase):
             )
 
         contest_id_map = self._build_contest_id_map()
+        known = self._db.get_known_contest_names()
 
         for sheet_name, sheet_rows in _iter_excel_sheets(path):
-            self._process_sheet(sheet_rows, election.id, contest_id_map, sheet_name)
+            result = self._process_sheet(sheet_rows, election.id, contest_id_map, sheet_name)
+            if result is not None:
+                raw_name, norm_name = result
+                flag_df = pd.DataFrame(
+                    [{"contest_name_raw": raw_name, "contest_name": norm_name}]
+                )
+                self._db._write_flags(
+                    flag_df,
+                    election.year,
+                    known,
+                    source_file=path.name,
+                    source_tab=sheet_name,
+                    source_row=1,
+                )
 
-        self._db.register_file(path.name, election.id)
+        self._db._conn.commit()
+        self._db.register_file(path.name, election.id, file_type="detail")
 
     def _build_contest_id_map(self) -> dict[str, int]:
         df = self._db.query("SELECT id, contest_name FROM contests")
@@ -531,18 +593,26 @@ class LoadPrecinctDetail(_LoaderBase):
         election_id: int,
         contest_id_map: dict[str, int],
         sheet_name: str,
-    ) -> None:
+    ) -> tuple[str, str] | None:
         if len(rows) < 4:
-            return
+            return None
+
+        # Verify contest-sheet layout: row 2 col 0 must be the "Precinct"
+        # column header. Non-contest sheets ("Registered Voters", "Table of
+        # Contents") will not have this structure and should be silently skipped
+        # rather than flagged as unknown contest names.
+        if not rows[2] or str(rows[2][0] or "").strip().upper() != "PRECINCT":
+            return None
 
         raw_contest = str(rows[0][0] or "").strip()
         if not raw_contest:
-            return
+            return None
 
-        normalized_contest = normalize_contest_name(raw_contest)
-        contest_id = contest_id_map.get(normalized_contest)
+        overrides = self._db.get_overrides()
+        canonical = overrides.get(raw_contest) or normalize_contest_name(raw_contest)
+        contest_id = contest_id_map.get(canonical)
         if contest_id is None:
-            return
+            return (raw_contest, canonical)
 
         candidate_names: list[str] = []
         candidate_start_cols: list[int] = []
@@ -560,7 +630,7 @@ class LoadPrecinctDetail(_LoaderBase):
             col += 5
 
         if not candidate_names:
-            return
+            return None
 
         precinct_rows_to_insert: list[dict] = []
         for data_row in rows[3:]:
@@ -601,7 +671,7 @@ class LoadPrecinctDetail(_LoaderBase):
                 )
 
         if not precinct_rows_to_insert:
-            return
+            return None
 
         self._db.insert_precinct_results(precinct_rows_to_insert)
 

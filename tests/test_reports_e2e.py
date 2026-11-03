@@ -48,23 +48,6 @@ REPORTS_TOML = FIXTURES_DIR / "reports.toml"
 SAVE_DIR = Path("test-reports")
 
 # ---------------------------------------------------------------------------
-# --save-reports CLI flag
-# ---------------------------------------------------------------------------
-
-
-def pytest_addoption(parser: pytest.Parser) -> None:
-    parser.addoption(
-        "--save-reports",
-        action="store_true",
-        default=False,
-        help=(
-            "Copy e2e report output to test-reports/ in the project root "
-            "for manual inspection. Files are overwritten on each run."
-        ),
-    )
-
-
-# ---------------------------------------------------------------------------
 # Session-scoped fixtures: load data once, run reports once
 # ---------------------------------------------------------------------------
 

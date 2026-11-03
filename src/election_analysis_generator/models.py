@@ -17,7 +17,7 @@ class Election:
     id: int | None
     name: str
     year: int
-    summary_file: str
+    summary_file: str | None
     category: str = ""
     election_type: str = ""
     election_date: date | None = None

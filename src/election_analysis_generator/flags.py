@@ -75,6 +75,7 @@ def export_flags(
             "contest_name": "Normalized Suggestion",
         }
     )
+    flags_df = flags_df.sort_values("Normalized Suggestion").reset_index(drop=True)
     flags_df["Status"] = "unreviewed"
     flags_df["Override Target"] = ""
     flags_df["Notes"] = ""
@@ -84,10 +85,104 @@ def export_flags(
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         flags_df.to_excel(writer, sheet_name="flags", index=False)
         known_df.to_excel(writer, sheet_name="known_contests", index=False)
+        _write_instructions_sheet(writer)
         _format_flags_sheet(writer.sheets["flags"], flags_df)
         _format_known_sheet(writer.sheets["known_contests"])
 
     return len(flags_df)
+
+
+def _write_instructions_sheet(writer: pd.ExcelWriter) -> None:
+    """Write a human-readable instructions sheet as the first tab."""
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    wb = writer.book
+    ws = wb.create_sheet("instructions", 0)  # insert as first sheet
+
+    header_font = Font(bold=True, size=13, color="FFFFFF")
+    header_fill = PatternFill("solid", fgColor="1F4E79")
+    label_font = Font(bold=True)
+    wrap = Alignment(wrap_text=True, vertical="top")
+
+    def _header(row, text):
+        cell = ws.cell(row=row, column=1, value=text)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = wrap
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
+
+    def _row(row, label, value):
+        c1 = ws.cell(row=row, column=1, value=label)
+        c1.font = label_font
+        c1.alignment = wrap
+        c2 = ws.cell(row=row, column=2, value=value)
+        c2.alignment = wrap
+        ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=3)
+
+    def _text(row, text):
+        cell = ws.cell(row=row, column=1, value=text)
+        cell.alignment = wrap
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
+
+    r = 1
+    _header(r, "How to review contest name flags")
+    r += 1
+    _text(r, (
+        "Each row in the 'flags' tab is a contest name that appeared in a source file "
+        "but was not recognized. Review each row and set the Status column to one of "
+        "the values below, then run: uv run import-flags"
+    ))
+    r += 2
+
+    _header(r, "Status values")
+    r += 1
+    _row(r, "accepted",
+        "The Normalized Suggestion is correct as-is, or you have corrected it to the "
+        "right canonical name. The name will be registered and any existing rows with "
+        "the old normalized name will be updated to match.")
+    r += 1
+    _row(r, "mapped",
+        "The contest is a renamed or reformatted version of an existing contest. "
+        "Fill in Override Target with the canonical name from the 'known_contests' tab. "
+        "Existing rows will be updated and future loads of this raw name will map "
+        "automatically.")
+    r += 1
+    _row(r, "ignored",
+        "The contest should not be tracked (e.g. a ballot measure). "
+        "The flag is dismissed without registering anything.")
+    r += 1
+    _row(r, "unreviewed",
+        "Default. Row is skipped on import. Leave this if you are not sure yet.")
+    r += 2
+
+    _header(r, "Tips")
+    r += 1
+    _text(r, (
+        "- You can import a partially reviewed file. Unreviewed rows are skipped and "
+        "will reappear on the next export."
+    ))
+    r += 1
+    _text(r, (
+        "- For 'accepted': if the Normalized Suggestion is wrong, correct it directly "
+        "in that cell before setting Status to accepted."
+    ))
+    r += 1
+    _text(r, (
+        "- For 'mapped': copy the exact name from the 'known_contests' tab into the "
+        "Override Target column. The name must match exactly."
+    ))
+    r += 1
+    _text(r, (
+        "- Do not edit Flag ID, Year, or Raw Name columns."
+    ))
+    r += 1
+
+    ws.column_dimensions["A"].width = 22
+    ws.column_dimensions["B"].width = 55
+    ws.column_dimensions["C"].width = 25
+    ws.row_dimensions[2].height = 45
+    for i in range(4, 8):
+        ws.row_dimensions[i].height = 55
 
 
 def _format_flags_sheet(ws, df: pd.DataFrame) -> None:
@@ -197,8 +292,10 @@ def import_flags(
             counts["skipped"] += 1
 
         elif status == "accepted":
+            db.add_override(raw_name, normalized)
+            db.remap_by_raw_name(raw_name, normalized)
             db.register_contest_name(normalized, year)
-            db.resolve_flag(flag_id)
+            db.resolve_flag_by_raw_name(raw_name)
             counts["accepted"] += 1
 
         elif status == "mapped":
@@ -210,8 +307,9 @@ def import_flags(
                 counts["errors"] += 1
                 continue
             db.add_override(raw_name, override_target)
+            db.remap_by_raw_name(raw_name, override_target)
             db.register_contest_name(override_target, year)
-            db.resolve_flag(flag_id)
+            db.resolve_flag_by_raw_name(raw_name)
             counts["mapped"] += 1
 
         elif status == "ignored":
@@ -247,7 +345,6 @@ def review_flags(db: ElectionDatabase) -> None:
     print(f"{len(flags)} unresolved flag(s).\n")
 
     for flag in flags:
-        flag_id = flag["id"]
         year = flag["year"]
         raw_name = flag["contest_name_raw"]
         norm = flag["contest_name"]
@@ -266,7 +363,7 @@ def review_flags(db: ElectionDatabase) -> None:
 
             if choice == "a":
                 db.register_contest_name(norm, year)
-                db.resolve_flag(flag_id)
+                db.resolve_flag_by_raw_name(raw_name)
                 db._conn.commit()
                 print("  ✓ Accepted.\n")
                 break
@@ -298,7 +395,8 @@ def review_flags(db: ElectionDatabase) -> None:
                 canonical = matches[int(idx) - 1]
                 note = input(f"  Note (optional, e.g. 'Renamed in {year}'): ").strip()
                 db.add_override(raw_name, canonical, note or None)
-                db.resolve_flag(flag_id)
+                db.remap_by_raw_name(raw_name, canonical)
+                db.resolve_flag_by_raw_name(raw_name)
                 db._conn.commit()
                 print(f"  ✓ Mapped to: {canonical}\n")
                 break
