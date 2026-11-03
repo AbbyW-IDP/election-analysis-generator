@@ -36,6 +36,6 @@ jobs:
         run: uv sync --all-groups
 
       - name: Run MegaLinter
-        uses: oxsecurity/megalinter/flavors/python@v9
+        uses: oxsecurity/megalinter/flavors/python@v10
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
