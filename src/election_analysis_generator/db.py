@@ -1093,11 +1093,13 @@ class ElectionDatabase:
                 for raw in df["contest_name_raw"].unique()
             }
         else:
-            first_row = (
-                df.groupby("contest_name_raw", sort=False)
+            first_row = {
+                str(k): int(v)
+                for k, v in df.groupby("contest_name_raw", sort=False)
                 .apply(lambda g: int(g.index.min()) + 2)
                 .to_dict()
-            )
+                .items()
+            }
         flag_df = pd.DataFrame(df[["contest_name_raw", "contest_name"]].drop_duplicates())
         flag_df["year"] = year
         flag_df["contest_name"] = [
