@@ -1280,7 +1280,7 @@ class ElectionDatabase:
             """,
             [target_election_name],
         )
-        skipped = int(all_rows["party"].notna().sum()) if not all_rows.empty else 0
+        skipped = int(all_rows["party"].notna().sum().item()) if not all_rows.empty else 0
 
         null_df = all_rows[all_rows["party"].isna()].copy()
         if null_df.empty:
@@ -1340,7 +1340,7 @@ class ElectionDatabase:
         for _, row in null_df.iterrows():
             cn_upper = str(row["contest_name"]).upper()
             choice_upper = str(row["choice_name"]).upper()
-            row_id = int(row["id"])
+            row_id = int(row["id"].item())
 
             key = (cn_upper, choice_upper)
             if key in contest_name_map:
