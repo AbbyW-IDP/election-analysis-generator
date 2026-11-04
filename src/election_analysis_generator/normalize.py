@@ -202,9 +202,57 @@ def normalize_candidate_name(
     """
     Apply known name corrections to a candidate's full name.
 
+    Also normalizes the governor/lt. governor paired format used in DuPage
+    general election CSVs: "(NAME\n(NAME" -> "NAME / NAME".
+
     ``corrections`` maps casefolded wrong names to their correct replacements.
     The corrected value is returned exactly as written in the dict value.
 
     Returns the original name unchanged if no correction applies.
     """
+    if name.startswith("(") and ("\n" in name or "\r" in name):
+        parts = [p.lstrip("(").strip() for p in name.splitlines() if p.strip()]
+        parts = [corrections.get(p.casefold(), p) for p in parts]
+        return " / ".join(parts)
     return corrections.get(name.casefold(), name)
+
+
+# ---------------------------------------------------------------------------
+# Candidate party overrides
+# ---------------------------------------------------------------------------
+
+# Manual party assignments for candidates who did not appear in a same-year
+# primary (so infer_party_from_elections cannot find them).
+# Key: (casefolded choice_name, normalized contest_name)
+# Value: canonical party code (e.g. "REP", "DEM")
+CANDIDATE_PARTY_OVERRIDES: dict[tuple[str, str], str] = {
+    (
+        "jb pritzker / christian mitchell",
+        "FOR GOVERNOR AND LIEUTENANT GOVERNOR",
+    ): "DEM",
+    (
+        "rhys read",
+        "FOR REPRESENTATIVE IN THE GENERAL ASSEMBLY FIFTY-SIXTH REPRESENTATIVE DISTRICT",
+    ): "REP",
+}
+
+
+def apply_party_overrides(
+    df: pd.DataFrame,
+    overrides: dict[tuple[str, str], str] = CANDIDATE_PARTY_OVERRIDES,
+) -> pd.DataFrame:
+    """Set party on rows where party is null and (choice_name, contest_name) matches an override.
+
+    Rows that already have a party value are never changed.
+    """
+    df = df.copy()
+    for (name_key, contest_key), party in overrides.items():
+        mask = (
+            df["choice_name"].str.casefold() == name_key
+        ) & (
+            df["contest_name"] == contest_key
+        ) & (
+            df["party"].isna() | (df["party"].astype(str).str.strip() == "")
+        )
+        df.loc[mask, "party"] = party
+    return df

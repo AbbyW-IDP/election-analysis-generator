@@ -5,11 +5,13 @@ Tests for election_analysis.normalize
 import pytest
 from src.election_analysis_generator.normalize import (
     ORDINAL_MAP,
+    CANDIDATE_PARTY_OVERRIDES,
     _ordinal_suffix,
     _ordinal_word,
     normalize_contest_name,
     normalize_candidate_name,
     normalize_party,
+    apply_party_overrides,
 )
 
 
@@ -392,6 +394,41 @@ class TestNormalizeCandidateName:
     def test_empty_corrections_dict_returns_original(self):
         assert normalize_candidate_name("JB PRITZER", {}) == "JB PRITZER"
 
+    # Governor/Lt. Governor paired format: "(NAME\n(NAME" -> "NAME / NAME"
+    @pytest.mark.parametrize("raw, expected", [
+        pytest.param(
+            "(JB PRITZKER\n(CHRISTIAN MITCHELL",
+            "JB PRITZKER / CHRISTIAN MITCHELL",
+            id="pritzker_mitchell_lf",
+        ),
+        pytest.param(
+            "(JB PRITZKER\r(CHRISTIAN MITCHELL",
+            "JB PRITZKER / CHRISTIAN MITCHELL",
+            id="pritzker_mitchell_cr",
+        ),
+        pytest.param(
+            "(DARREN BAILEY\n(AARON B. DEL MAR",
+            "DARREN BAILEY / AARON B. DEL MAR",
+            id="bailey_del_mar",
+        ),
+        pytest.param(
+            "(COLLIN CORBETT\n(CAROLYN SCHOFIELD",
+            "COLLIN CORBETT / CAROLYN SCHOFIELD",
+            id="corbett_schofield",
+        ),
+    ])
+    def test_governor_pair_format_normalized(self, raw, expected):
+        assert normalize_candidate_name(raw) == expected
+
+    def test_governor_pair_then_corrections_applied(self):
+        """After unpacking the paired format, name corrections still fire."""
+        assert normalize_candidate_name("(JB PRITZER\n(CHRISTIAN MITCHELL") == "JB PRITZKER / CHRISTIAN MITCHELL"
+        assert normalize_candidate_name("(JB PRITZER\r(CHRISTIAN MITCHELL") == "JB PRITZKER / CHRISTIAN MITCHELL"
+
+    def test_non_paired_names_unaffected(self):
+        assert normalize_candidate_name("JB PRITZKER") == "JB PRITZKER"
+        assert normalize_candidate_name("DARREN BAILEY") == "DARREN BAILEY"
+
     def test_multiple_corrections_all_applied(self):
         custom = {
             "jb pritzer": "JB PRITZKER",
@@ -399,6 +436,47 @@ class TestNormalizeCandidateName:
         }
         assert normalize_candidate_name("ROB BLAGOJEVICH", custom) == "ROD BLAGOJEVICH"
         assert normalize_candidate_name("JB PRITZER", custom) == "JB PRITZKER"
+
+
+class TestApplyPartyOverrides:
+    _56TH = "FOR REPRESENTATIVE IN THE GENERAL ASSEMBLY FIFTY-SIXTH REPRESENTATIVE DISTRICT"
+
+    def test_rhys_read_assigned_rep(self):
+        import pandas as pd
+        df = pd.DataFrame([
+            {"choice_name": "RHYS READ", "contest_name": self._56TH, "party": None},
+        ])
+        result = apply_party_overrides(df)
+        assert result.loc[0, "party"] == "REP"
+
+    def test_does_not_overwrite_existing_party(self):
+        import pandas as pd
+        df = pd.DataFrame([
+            {"choice_name": "RHYS READ", "contest_name": self._56TH, "party": "DEM"},
+        ])
+        result = apply_party_overrides(df)
+        assert result.loc[0, "party"] == "DEM"
+
+    def test_case_insensitive_name_match(self):
+        import pandas as pd
+        df = pd.DataFrame([
+            {"choice_name": "Rhys Read", "contest_name": self._56TH, "party": None},
+        ])
+        result = apply_party_overrides(df)
+        assert result.loc[0, "party"] == "REP"
+
+    def test_unrelated_candidate_unaffected(self):
+        import pandas as pd
+        df = pd.DataFrame([
+            {"choice_name": "JANE SMITH", "contest_name": self._56TH, "party": None},
+        ])
+        result = apply_party_overrides(df)
+        assert result.loc[0, "party"] is None
+
+    def test_candidate_party_overrides_contains_rhys_read(self):
+        key = ("rhys read", self._56TH)
+        assert key in CANDIDATE_PARTY_OVERRIDES
+        assert CANDIDATE_PARTY_OVERRIDES[key] == "REP"
 
 
 class TestNormalizeIdempotency:

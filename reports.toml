@@ -13,7 +13,7 @@
 #                   false -- all contests, with NaN where data is missing
 
 [reports.general-midterm-comparison]
-output = "general_midterm_election_analysis.xlsx"
+output = "2026_general_election_analysis.xlsx"
 
 [[reports.general-midterm-comparison.analyses]]
 analysis  = "turnout"
@@ -23,26 +23,27 @@ comparable_only = false
 
 [[reports.general-midterm-comparison.analyses]]
 analysis  = "pct_change_by_party"
-sheet     = "18-22 pct change by party"
-elections = ["2018 general", "2022 general"]
+sheet     = "22-26 pct change by party"
+elections = ["2022 general", "2026 general"]
 
 [[reports.general-midterm-comparison.analyses]]
 analysis  = "party_share"
-sheet     = "14-22 party share"
+sheet     = "14-26 party share"
 elections = [
     "2014 general",
     "2018 general",
     "2022 general",
+    "2026 general",
 ]
 
 [[reports.general-midterm-comparison.analyses]]
 analysis  = "aggregated_csv"
 sheet     = "raw data"
-elections = ["2018 general", "2022 general"]
+elections = ["2022 general", "2026 general"]
 comparable_only = false
 
 [[reports.general-midterm-comparison.analyses]]
 analysis  = "precinct_turnout"
 sheet     = "precinct turnout"
-elections = ["2022 general"]
+elections = ["2026 general"]
 comparable_only = false

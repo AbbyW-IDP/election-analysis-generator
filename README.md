@@ -224,6 +224,51 @@ Current corrections:
 
 ---
 
+## General elections with no party data
+
+DuPage County general election CSVs do not include a party column. Candidates
+must be matched back to their party from the same-year primary before partisan
+analyses (pct_change_by_party, party_share) will work.
+
+### Step 1 -- infer parties from the primary
+
+```bash
+uv run infer-party "2026 general"
+```
+
+This matches each candidate by (contest name, candidate name) against the
+same-year primary elections and back-fills the `party` column. Rows that
+already have a party are never changed.
+
+Preview what would be updated without writing anything:
+
+```bash
+uv run infer-party "2026 general" --dry-run
+```
+
+### Step 2 -- un-mark contests as legislation
+
+When a CSV has no party data, every contest it contains is flagged as a ballot
+measure (`is_legislation = 1`) and excluded from partisan analysis. After
+inferring parties, correct this in DBeaver:
+
+```sql
+UPDATE contests
+SET is_legislation = 0
+WHERE contest_name IN (
+    SELECT DISTINCT cr.contest_name
+    FROM contest_results cr
+    JOIN elections e ON cr.election_id = e.id
+    WHERE e.name = '2026 general'
+      AND cr.party IS NOT NULL
+      AND TRIM(cr.party) != ''
+);
+```
+
+Then re-run `uv run generate-analysis`.
+
+---
+
 ## Reviewing flagged contest names
 
 After loading a new election, any normalized contest name that doesn't match the registry is flagged. There are two ways to resolve flags.

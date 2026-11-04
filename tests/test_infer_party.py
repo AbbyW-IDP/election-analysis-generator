@@ -261,3 +261,48 @@ class TestReturnCounts:
         """Passing an election name that does not exist in the database raises ValueError."""
         with pytest.raises(ValueError, match="not found"):
             db.infer_party_from_elections("1800 general")
+
+
+# ---------------------------------------------------------------------------
+# is_legislation cleanup
+# ---------------------------------------------------------------------------
+
+class TestIsLegislationCleanup:
+    def test_clears_is_legislation_for_contests_with_party_after_inference(self, db: ElectionDatabase) -> None:
+        """After inference, contests that now have party data are marked is_legislation = 0."""
+        _seed_general(db, "2018 general", 2018, [
+            {"contest_name_raw": "FOR GOVERNOR AND LIEUTENANT GOVERNOR", "choice_name": "JB Pritzker",  "party": None, "total_votes": 176000},
+            {"contest_name_raw": "FOR GOVERNOR AND LIEUTENANT GOVERNOR", "choice_name": "Bruce Rauner", "party": None, "total_votes": 168000},
+        ])
+        _seed_primary(db, "2018 General Primary", 2018, [
+            {"contest_name_raw": "FOR GOVERNOR AND LIEUTENANT GOVERNOR", "choice_name": "JB Pritzker",  "party": "DEM", "total_votes": 90000},
+            {"contest_name_raw": "FOR GOVERNOR AND LIEUTENANT GOVERNOR", "choice_name": "Bruce Rauner", "party": "REP", "total_votes": 70000},
+        ])
+
+        row = db._conn.execute(
+            "SELECT is_legislation FROM contests WHERE contest_name = 'FOR GOVERNOR AND LIEUTENANT GOVERNOR'"
+        ).fetchone()
+        assert row["is_legislation"] == 1
+
+        db.infer_party_from_elections("2018 general")
+
+        row = db._conn.execute(
+            "SELECT is_legislation FROM contests WHERE contest_name = 'FOR GOVERNOR AND LIEUTENANT GOVERNOR'"
+        ).fetchone()
+        assert row["is_legislation"] == 0
+
+    def test_does_not_clear_contests_still_missing_party(self, db: ElectionDatabase) -> None:
+        """Contests where no candidate got a party after inference remain is_legislation = 1."""
+        _seed_general(db, "2018 general", 2018, [
+            {"contest_name_raw": "FOR MYSTERY CONTEST", "choice_name": "Nobody",   "party": None, "total_votes": 100},
+        ])
+        _seed_primary(db, "2018 General Primary", 2018, [
+            {"contest_name_raw": "FOR ATTORNEY GENERAL", "choice_name": "Jane Smith", "party": "DEM", "total_votes": 500},
+        ])
+
+        db.infer_party_from_elections("2018 general")
+
+        row = db._conn.execute(
+            "SELECT is_legislation FROM contests WHERE contest_name = 'FOR MYSTERY CONTEST'"
+        ).fetchone()
+        assert row["is_legislation"] == 1
