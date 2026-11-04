@@ -34,6 +34,8 @@ import pandas as pd
 
 from .models import Election
 from .normalize import (
+    apply_party_overrides,
+    normalize_candidate_name,
     normalize_contest_name,
     normalize_party,
 )
@@ -458,6 +460,11 @@ class ElectionDatabase:
             lambda r: overrides[r] if r in overrides else normalize_contest_name(r)
         )
         df["party"] = df["party"].apply(normalize_party)
+        if "choice_name" in df.columns:
+            df["choice_name"] = df["choice_name"].apply(
+                lambda n: normalize_candidate_name(n) if isinstance(n, str) else n
+            )
+        df = apply_party_overrides(df)
         return df
 
     def _apply_for_prefix_remapping(
@@ -1360,7 +1367,25 @@ class ElectionDatabase:
                 "UPDATE contest_results SET party = ? WHERE id = ?",
                 updates,
             )
-            self._conn.commit()
+
+        # Clear is_legislation on contests that now have at least one partisan row
+        self._conn.execute(
+            """
+            UPDATE contests
+            SET is_legislation = 0
+            WHERE contest_name IN (
+                SELECT DISTINCT cr.contest_name
+                FROM contest_results cr
+                JOIN elections e ON cr.election_id = e.id
+                WHERE e.name = ?
+                  AND cr.party IS NOT NULL
+                  AND TRIM(cr.party) != ''
+            )
+            AND is_legislation = 1
+            """,
+            [target_election_name],
+        )
+        self._conn.commit()
 
         return {
             "updated": len(updates),
