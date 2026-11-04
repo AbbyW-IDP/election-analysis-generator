@@ -1,0 +1,57 @@
+# reports.toml
+# ------------
+# Define named reports here. Each report produces one Excel file.
+# Run with: uv run generate-analysis
+#
+# Each [[reports.<key>.analyses]] entry is one sheet in the output file.
+#
+# analysis values:  pct_change_by_party | party_share | turnout
+# elections:        list of election names exactly as they appear in elections.toml
+#                   omit (or leave empty) for analyses that default to all elections
+# comparable_only:  true (default) — only contests where all parties have votes
+#                   in all specified elections
+#                   false — all contests, with NaN where data is missing
+
+[reports.primary-comparison]
+output = "2026_primary_midterm_election_analysis.xlsx"
+
+[[reports.primary-comparison.analyses]]
+analysis  = "turnout"
+sheet     = "turnout"
+# no elections → includes all elections in the database
+comparable_only = false
+
+[[reports.primary-comparison.analyses]]
+analysis  = "pct_change_by_party"
+sheet     = "22-26 pct change by party"
+elections = ["2022 General Primary", "2026 General Primary"]
+
+[[reports.primary-comparison.analyses]]
+analysis  = "party_share"
+sheet     = "14-26 party share"
+elections = [
+    "2014 General Primary",
+    "2018 General Primary",
+    "2022 General Primary",
+    "2026 General Primary",
+]
+
+# Example: same analysis but including all contests (not just comparable ones)
+# [[reports.primary-comparison.analyses]]
+# analysis        = "pct_change_by_party"
+# sheet           = "22-26 all contests"
+# elections       = ["2022 General Primary", "2026 General Primary"]
+# comparable_only = false
+
+[[reports.primary-comparison.analyses]]
+analysis  = "aggregated_csv"
+sheet     = "raw data"
+elections = ["2022 General Primary", "2026 General Primary"]
+# elections omitted → includes all elections in the database
+comparable_only = false
+
+[[reports.primary-comparison.analyses]]
+analysis  = "precinct_turnout"
+sheet     = "precinct turnout"
+elections = ["2026 General Primary"]   # omit to include all elections
+comparable_only = false
