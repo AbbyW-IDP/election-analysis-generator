@@ -375,3 +375,72 @@ def review_flags_cmd() -> None:
     """Interactively resolve flagged contest names in the terminal."""
     with ElectionDatabase(DEFAULT_DB_PATH) as db:
         review_flags(db)
+
+
+def infer_party_cmd() -> None:
+    """Back-fill null party values in a general election from the same-year primary."""
+    parser = argparse.ArgumentParser(
+        description=(
+            "Infer party affiliation for candidates whose party field is null "
+            "by matching them against primary elections from the same year. "
+            "Rows that already have a party value are never changed."
+        )
+    )
+    parser.add_argument(
+        "election",
+        help='Name of the election to fix (e.g. "2018 general").',
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Show what would be updated without writing to the database.",
+    )
+    args = parser.parse_args()
+
+    with ElectionDatabase(DEFAULT_DB_PATH) as db:
+        try:
+            election_obj = db.get_election_by_name(args.election)
+            if election_obj is None:
+                print(f"Error: Election not found: {args.election!r}")
+                sys.exit(1)
+
+            if args.dry_run:
+                null_count = len(db.query(
+                    """
+                    SELECT cr.id
+                    FROM contest_results cr
+                    JOIN elections e ON cr.election_id = e.id
+                    WHERE e.name = ?
+                      AND (cr.party IS NULL OR TRIM(cr.party) = '')
+                    """,
+                    [args.election],
+                ))
+                already_set = len(db.query(
+                    """
+                    SELECT cr.id
+                    FROM contest_results cr
+                    JOIN elections e ON cr.election_id = e.id
+                    WHERE e.name = ?
+                      AND cr.party IS NOT NULL
+                      AND TRIM(cr.party) != ''
+                    """,
+                    [args.election],
+                ))
+                print(f"[dry run] {args.election!r}")
+                print(f"  {null_count} row(s) have no party (would attempt inference)")
+                print(f"  {already_set} row(s) already have a party (would be skipped)")
+                print(f"  Lookup: {election_obj.year} primary elections")
+                return
+
+            result = db.infer_party_from_elections(args.election)
+        except ValueError as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+
+    print(f"Party inference complete for {args.election!r}:")
+    print(f"  {result['updated']:>5} updated")
+    print(f"  {result['skipped']:>5} skipped (already had a party)")
+    print(f"  {result['not_found']:>5} not found in any lookup election")
+    if result["ambiguous"]:
+        print(f"  {result['ambiguous']:>5} ambiguous (name matched multiple parties -- not updated)")

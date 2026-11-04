@@ -1223,3 +1223,146 @@ class ElectionDatabase:
         if params is not None:
             return pd.read_sql(sql, self._conn, params=params)
         return pd.read_sql(sql, self._conn)
+
+    # ------------------------------------------------------------------
+    # Party inference
+    #
+    # Some source CSVs have no party column (common in older general
+    # elections). infer_party_from_elections() back-fills party on those
+    # rows by matching (contest_name, choice_name) against primary
+    # elections from the same year that do have party data.
+    #
+    # Already-populated party values are never overwritten.
+    # ------------------------------------------------------------------
+
+    def infer_party_from_elections(
+        self,
+        target_election_name: str,
+    ) -> dict:
+        """Back-fill null party values in target_election_name from the same-year primary.
+
+        Looks up each null-party row by (contest_name, choice_name) in
+        primary elections (category LIKE '%primary%') from the same year.
+        Match is case-insensitive.  When no contest-scoped match exists
+        the method falls back to a name-only lookup -- but only when that
+        name maps to a single party across all matching primaries.
+
+        Rows whose party field is already populated are never touched.
+
+        Args:
+            target_election_name: Election to fix (e.g. "2018 general").
+
+        Returns:
+            {
+              "updated":   int -- rows whose party was set,
+              "not_found": int -- rows with no match in the same-year primary,
+              "ambiguous": int -- rows where only the name-only fallback
+                                  was possible but it mapped to >1 party,
+              "skipped":   int -- rows that already had a party value,
+            }
+
+        Raises:
+            ValueError: if target_election_name is not in the database.
+        """
+        election_obj = self.get_election_by_name(target_election_name)
+        if election_obj is None:
+            raise ValueError(f"Election not found: {target_election_name!r}")
+        target_year = election_obj.year
+
+        # Count rows that already have a party (will be skipped)
+        all_rows = self.query(
+            """
+            SELECT cr.id, cr.choice_name, co.contest_name, cr.party
+            FROM contest_results cr
+            JOIN contests  co ON cr.contest_id  = co.id
+            JOIN elections e  ON cr.election_id = e.id
+            WHERE e.name = ?
+            """,
+            [target_election_name],
+        )
+        skipped = int(all_rows["party"].notna().sum()) if not all_rows.empty else 0
+
+        null_df = all_rows[all_rows["party"].isna()].copy()
+        if null_df.empty:
+            return {"updated": 0, "not_found": 0, "ambiguous": 0, "skipped": skipped}
+
+        # Build lookup from same-year primary elections
+        lookup_df = self.query(
+            """
+            SELECT cr.choice_name, co.contest_name, cr.party
+            FROM contest_results cr
+            JOIN contests  co ON cr.contest_id  = co.id
+            JOIN elections e  ON cr.election_id = e.id
+            WHERE e.year = ?
+              AND LOWER(e.category) LIKE '%primary%'
+              AND cr.party IS NOT NULL
+              AND TRIM(cr.party) != ''
+            """,
+            [target_year],
+        )
+
+        if lookup_df.empty:
+            return {
+                "updated": 0,
+                "not_found": len(null_df),
+                "ambiguous": 0,
+                "skipped": skipped,
+            }
+
+        # (contest_name_upper, choice_name_upper) -> party map (first match wins)
+        contest_name_map: dict[tuple[str, str], str] = {}
+        # choice_name_upper -> set of parties seen
+        name_parties: dict[str, set[str]] = {}
+
+        for _, row in lookup_df.iterrows():
+            cn_upper = str(row["contest_name"]).upper()
+            choice_upper = str(row["choice_name"]).upper()
+            party = str(row["party"])
+
+            key = (cn_upper, choice_upper)
+            if key not in contest_name_map:
+                contest_name_map[key] = party
+
+            name_parties.setdefault(choice_upper, set()).add(party)
+
+        # Fallback: unambiguous name -> party
+        name_fallback: dict[str, str] = {
+            name: next(iter(parties))
+            for name, parties in name_parties.items()
+            if len(parties) == 1
+        }
+
+        # Match each null-party row
+        updates: list[tuple[str, int]] = []
+        ambiguous_count = 0
+        not_found_count = 0
+
+        for _, row in null_df.iterrows():
+            cn_upper = str(row["contest_name"]).upper()
+            choice_upper = str(row["choice_name"]).upper()
+            row_id = int(row["id"])
+
+            key = (cn_upper, choice_upper)
+            if key in contest_name_map:
+                updates.append((contest_name_map[key], row_id))
+            elif choice_upper in name_fallback:
+                updates.append((name_fallback[choice_upper], row_id))
+            elif choice_upper in name_parties:
+                # Name found but maps to multiple parties and no contest match
+                ambiguous_count += 1
+            else:
+                not_found_count += 1
+
+        if updates:
+            self._conn.executemany(
+                "UPDATE contest_results SET party = ? WHERE id = ?",
+                updates,
+            )
+            self._conn.commit()
+
+        return {
+            "updated": len(updates),
+            "not_found": not_found_count,
+            "ambiguous": ambiguous_count,
+            "skipped": skipped,
+        }
