@@ -321,7 +321,7 @@ class ElectionAnalyzer:
             .sum()
         )
         contest_totals: pd.DataFrame = raw_totals if isinstance(raw_totals, pd.DataFrame) else pd.DataFrame(raw_totals)
-        contest_totals = contest_totals.rename(columns={"party_total": "contest_total"})
+        contest_totals = contest_totals.rename(columns={"party_total": "contest_total"})  # type: ignore[call-overload]
         df = df.merge(contest_totals, on=["election_id", "election_name", "contest_name"])
         df["vote_share"] = df["party_total"] / df["contest_total"]
 
