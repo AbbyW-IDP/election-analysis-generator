@@ -584,7 +584,7 @@ class TestTurnout:
         )
         analyzer = ElectionAnalyzer(db)
         result = analyzer.turnout()
-        assert abs(result.loc["% Vote", "2022 General Primary"] - 0.25) < 1e-6
+        assert abs(result.loc["% Vote", "2022 General Primary"] - 0.25) < 1e-6  # type: ignore[operator]
 
     def test_pct_vote_null_when_ballots_cast_is_none(self, db):
         """When ballots_cast is NULL in the DB, % Vote should be NaN rather than raise."""
@@ -598,7 +598,7 @@ class TestTurnout:
         )
         analyzer = ElectionAnalyzer(db)
         result = analyzer.turnout()
-        assert pd.isna(result.loc["% Vote", "2022 General Primary"])
+        assert pd.isna(result.loc["% Vote", "2022 General Primary"])  # type: ignore[arg-type]
 
     def test_filters_to_specified_elections(self, analyzer):
         result = analyzer.turnout("2022 General Primary")

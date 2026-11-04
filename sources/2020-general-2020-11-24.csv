@@ -1,0 +1,157 @@
+line number,contest name,choice name,party name,total votes,percent of votes,registered voters,ballots cast,num Precinct total,num Precinct rptg,over votes,under votes
+1,CONSTITUTIONAL AMENDMENT INCOME TAX RATES,Yes/Sí,,197510,42.77,641503,489741,930,930,0,0
+2,CONSTITUTIONAL AMENDMENT INCOME TAX RATES,No,,264321,57.23,641503,489741,930,930,0,0
+3,President and Vice President of the United States,Joseph R. Biden,D,281222,57.97,641503,491067,930,930,0,0
+4,President and Vice President of the United States,Donald J. Trump,R,193611,39.91,641503,491067,930,930,0,0
+5,President and Vice President of the United States,Howie Hawkins,GP,2490,0.51,641503,491067,930,930,0,0
+6,President and Vice President of the United States,Gloria La Riva,S&L,377,0.08,641503,491067,930,930,0,0
+7,President and Vice President of the United States,Brian Carroll,ASP,1115,0.23,641503,491067,930,930,0,0
+8,President and Vice President of the United States,Jo Jorgensen,L,6249,1.29,641503,491067,930,930,0,0
+9,President and Vice President of the United States,Barbara Bellar,,0,0,641503,491067,930,930,0,0
+10,President and Vice President of the United States,Don Blankenship,,1,0,641503,491067,930,930,0,0
+11,President and Vice President of the United States,Todd Cella,,0,0,641503,491067,930,930,0,0
+12,President and Vice President of the United States,Mark Charles,,12,0,641503,491067,930,930,0,0
+13,President and Vice President of the United States,Phil Collins,,0,0,641503,491067,930,930,0,0
+14,President and Vice President of the United States,Randall Foltyniewicz,,0,0,641503,491067,930,930,0,0
+15,President and Vice President of the United States,Shawn Howard,,0,0,641503,491067,930,930,0,0
+16,President and Vice President of the United States,Joseph Kishore,,4,0,641503,491067,930,930,0,0
+17,President and Vice President of the United States,Kevin McKee,,0,0,641503,491067,930,930,0,0
+18,President and Vice President of the United States,David Jeffrey Nash,,0,0,641503,491067,930,930,0,0
+19,President and Vice President of the United States,Deborah Rouse,,1,0,641503,491067,930,930,0,0
+20,President and Vice President of the United States,Jade Simmons,,14,0,641503,491067,930,930,0,0
+21,President and Vice President of the United States,Kasey Wells,,1,0,641503,491067,930,930,0,0
+22,President and Vice President of the United States,Andy Hope Williams J,,7,0,641503,491067,930,930,0,0
+23,United States Senator,Richard J. Durbin,D,264921,54.76,641503,491067,930,930,0,0
+24,United States Senator,Mark C. Curran Jr.,R,196759,40.67,641503,491067,930,930,0,0
+25,United States Senator,Willie L. Wilson,WWP,12241,2.53,641503,491067,930,930,0,0
+26,United States Senator,David F. Black,GP,4134,0.85,641503,491067,930,930,0,0
+27,United States Senator,Danny Malouf,L,5714,1.18,641503,491067,930,930,0,0
+28,United States Senator,Kevin Keely,,0,0,641503,491067,930,930,0,0
+29,United States Senator,Albert A. Schaal,,2,0,641503,491067,930,930,0,0
+30,United States Senator,Lowell Martin Seida,,0,0,641503,491067,930,930,0,0
+31,"Representative In Congress,3rd Congressional District",Marie Newman,D,383,53.05,1059,773,2,2,0,0
+32,"Representative In Congress,3rd Congressional District",Mike Fricilone,R,339,46.95,1059,773,2,2,0,0
+33,"Representative In Congress,5th Congressional District",Mike Quigley,D,18682,52.6,46323,36727,69,69,0,0
+34,"Representative In Congress,5th Congressional District",Tommy Hanson,R,16292,45.87,46323,36727,69,69,0,0
+35,"Representative In Congress,5th Congressional District",Thomas J. Wilda,GP,543,1.53,46323,36727,69,69,0,0
+36,"Representative In Congress,5th Congressional District",Frank Rowder,,0,0,46323,36727,69,69,0,0
+37,"Representative In Congress,6th Congressional District",Sean Casten,D,113822,54.76,272914,214675,400,400,0,0
+38,"Representative In Congress,6th Congressional District",Jeanne Ives,R,90656,43.62,272914,214675,400,400,0,0
+39,"Representative In Congress,6th Congressional District",Bill Redpath,L,3366,1.62,272914,214675,400,400,0,0
+40,"Representative In Congress,8th Congressional District",Raja Krishnamoorthi,D,70360,72.8,160569,115968,229,229,0,0
+41,"Representative In Congress,8th Congressional District",Preston Gabriel Nels,L,26288,27.2,160569,115968,229,229,0,0
+42,"Representative In Congress,11th Congressional District",Bill Foster,D,66698,61.61,148656,114010,218,218,0,0
+43,"Representative In Congress,11th Congressional District",Rick Laib,R,41553,38.38,148656,114010,218,218,0,0
+44,"Representative In Congress,11th Congressional District",Jon Harlson,,5,0,148656,114010,218,218,0,0
+45,"Representative In Congress,14th Congressional District",Lauren Underwood,D,5366,62.38,11982,8914,16,16,0,0
+46,"Representative In Congress,14th Congressional District",Jim Oberweis,R,3236,37.62,11982,8914,16,16,0,0
+47,"Representative In Congress,14th Congressional District",Joseph Monack,,0,0,11982,8914,16,16,0,0
+48,State Senator 25th Legislative District,Karina Villa,D,10436,59.21,24616,18031,35,35,0,0
+49,State Senator 25th Legislative District,Jeanette Ward,R,7189,40.79,24616,18031,35,35,0,0
+50,State Senator 28th Legislative District,Laura Murphy,D,7100,100,13567,9713,19,19,0,0
+51,State Senator 43rd Legislative District,John Connor,D,5096,62.83,11405,8392,18,18,0,0
+52,State Senator 43rd Legislative District,Ben Bierly,R,3015,37.17,11405,8392,18,18,0,0
+53,Representative General Assembly 41st Representative District,Janet Yang Rohr,D,21759,51.98,54914,42903,83,83,0,0
+54,Representative General Assembly 41st Representative District,Grant Wehrli,R,20099,48.02,54914,42903,83,83,0,0
+55,Representative General Assembly 42nd Representative District,Ken Mejia-Beal,D,30005,48.12,81256,64081,121,121,0,0
+56,Representative General Assembly 42nd Representative District,Amy L. Grant,R,32349,51.88,81256,64081,121,121,0,0
+57,Representative General Assembly 45th Representative District,Diane Pappas,D,24600,46.54,71666,54300,106,106,0,0
+58,Representative General Assembly 45th Representative District,Seth Lewis,R,28260,53.46,71666,54300,106,106,0,0
+59,Representative General Assembly 46th Representative District,Deb Conroy,D,34949,100,65716,46449,98,98,0,0
+60,Representative General Assembly 47th Representative District,Jennifer Zordani,D,27667,46.22,78576,61818,114,114,0,0
+61,Representative General Assembly 47th Representative District,Deanne Marie Mazzochi,R,32195,53.78,78576,61818,114,114,0,0
+62,Representative General Assembly 48th Representative District,Terra Costa Howard,D,33303,53.77,81417,63464,123,123,0,0
+63,Representative General Assembly 48th Representative District,Peter Breen,R,28628,46.23,81417,63464,123,123,0,0
+64,Representative General Assembly 49th Representative District,Maura Hirschauer,D,10027,57.57,24616,18031,35,35,0,0
+65,Representative General Assembly 49th Representative District,Laura Curtis,R,7391,42.43,24616,18031,35,35,0,0
+66,Representative General Assembly 56th Representative District,Michelle Mussman,D,5462,58.44,13567,9713,19,19,0,0
+67,Representative General Assembly 56th Representative District,Scott Kegarise,R,3885,41.56,13567,9713,19,19,0,0
+68,Representative General Assembly 77th Representative District,Kathleen Willis,D,9048,60.66,22590,15423,29,29,0,0
+69,Representative General Assembly 77th Representative District,Anthony Airdo,R,5868,39.34,22590,15423,29,29,0,0
+70,Representative General Assembly 81st Representative District,Anne Stava-Murray,D,32191,52.67,79447,63008,118,118,0,0
+71,Representative General Assembly 81st Representative District,Laura Hois,R,28925,47.33,79447,63008,118,118,0,0
+72,Representative General Assembly 82nd Representative District,Kassem Moukahal,D,8678,39.67,29588,22634,43,43,0,0
+73,Representative General Assembly 82nd Representative District,Jim Durkin,R,13195,60.33,29588,22634,43,43,0,0
+74,Representative General Assembly 84th Representative District,Stephanie A. Kifowit,D,15923,100,26745,19525,38,38,0,0
+75,Representative General Assembly 85th Representative District,"Dagmara ""Dee"" Avelar",D,4585,56.95,11405,8392,18,18,0,0
+76,Representative General Assembly 85th Representative District,Ron Doweidt,R,2978,36.99,11405,8392,18,18,0,0
+77,Representative General Assembly 85th Representative District,Anna Schiefelbein,GP,488,6.06,11405,8392,18,18,0,0
+78,State's Attorney,"Robert ""Bob"" Berlin",R,351749,100,641503,489741,930,930,0,0
+79,County Circuit Court Clerk,Candice Adams,D,235659,50.67,641503,489741,930,930,0,0
+80,County Circuit Court Clerk,Chris Kachiroubas,R,229411,49.33,641503,489741,930,930,0,0
+81,County Auditor,"William ""Bill"" White",D,233121,50.01,641503,489741,930,930,0,0
+82,County Auditor,Bob Grogan,R,233046,49.99,641503,489741,930,930,0,0
+83,Coroner,Gregory H. Whalen,D,227223,49.18,641503,489741,930,930,0,0
+84,Coroner,Richard Jorgensen,R,234809,50.82,641503,489741,930,930,0,0
+85,Recorder,Kathleen V. Carrier,D,240122,52.31,641503,489741,930,930,0,0
+86,Recorder,Babette Holder Youngberg,R,218903,47.69,641503,489741,930,930,0,0
+87,"County Board Member District 1,2 Year Term",Zahra Suratwala,D,31743,46.5,97300,72155,136,136,0,0
+88,"County Board Member District 1,2 Year Term",Donald E. Puchalski,R,36524,53.5,97300,72155,136,136,0,0
+89,"County Board Member District 2,2 Year Term",Paula Deacon Garcia,D,43703,51.4,115428,89571,171,171,0,0
+90,"County Board Member District 2,2 Year Term",Sean T. Noonan,R,41315,48.6,115428,89571,171,171,0,0
+91,"County Board Member District 3,2 Year Term",Gail Cabala-Lowry,D,40072,48.58,112406,87140,162,162,0,0
+92,"County Board Member District 3,2 Year Term",Brian J. Krajewski,R,42421,51.42,112406,87140,162,162,0,0
+93,"County Board Member District 4,2 Year Term",Lynn LaPlante,D,38600,50.22,106311,81144,164,164,0,0
+94,"County Board Member District 4,2 Year Term",Tim Elliott,R,38263,49.78,106311,81144,164,164,0,0
+95,"County Board Member District 5,2 Year Term",Amy Chavez,D,44875,56.58,108223,83104,164,164,0,0
+96,"County Board Member District 5,2 Year Term",Kevin Coyne,R,34440,43.42,108223,83104,164,164,0,0
+97,"County Board Member District 6,2 Year Term",Greg Schwarze,D,37034,50.84,101835,76627,152,152,0,0
+98,"County Board Member District 6,2 Year Term","Robert L. ""Bob"" Larsen",R,35814,49.16,101835,76627,152,152,0,0
+99,"DuPage County Forest Preserve Commissioner,District 2",Tina Tyson-Dunne,D,44820,52.86,115428,89571,171,171,0,0
+100,"DuPage County Forest Preserve Commissioner,District 2",Karen L. Kelly,R,39970,47.14,115428,89571,171,171,0,0
+101,"DuPage County Forest Preserve Commissioner,District 4",Jeff Gahris,D,38841,50.47,106311,81144,164,164,0,0
+102,"DuPage County Forest Preserve Commissioner,District 4",Tim Whelan,R,38123,49.53,106311,81144,164,164,0,0
+103,"DuPage County Forest Preserve Commissioner,District 5",Barbara O'Meara,D,43387,54.78,108223,83104,164,164,0,0
+104,"DuPage County Forest Preserve Commissioner,District 5",Mary Lou Wehrli,R,35815,45.22,108223,83104,164,164,0,0
+105,"Judge of the Circuit Court,18th Judicial Circuit (Bakalis)","Margaret ""Peggy"" O'Connell",D,245986,52.96,641503,489741,930,930,0,0
+106,"Judge of the Circuit Court,18th Judicial Circuit (Bakalis)",James F. McCluskey,R,218495,47.04,641503,489741,930,930,0,0
+107,"Judge of the Circuit Court,18th Judicial Circuit (O'Shea)",Azam Nizamuddin,D,229670,49.68,641503,489741,930,930,0,0
+108,"Judge of the Circuit Court,18th Judicial Circuit (O'Shea)",Richard D. Felice,R,232660,50.32,641503,489741,930,930,0,0
+109,"Judge of the Circuit Court,18th Judicial Circuit (Sutter)",Jill Otte,D,229087,49.52,641503,489741,930,930,0,0
+110,"Judge of the Circuit Court,18th Judicial Circuit (Sutter)",Ann Celine Walsh,R,233501,50.48,641503,489741,930,930,0,0
+111,"Judge of the Circuit Court,18st Judicial Circuit (Anderson)",Jeffrey M. Jacobson,D,227611,49.3,641503,489741,930,930,0,0
+112,"Judge of the Circuit Court,18st Judicial Circuit (Anderson)",Monique O'Toole,R,234089,50.7,641503,489741,930,930,0,0
+113,RETENTION APPELLATE COURT ANN B. JORGENSEN,Yes/Sí,,327742,79.66,641503,489741,930,930,0,0
+114,RETENTION APPELLATE COURT ANN B. JORGENSEN,No,,83702,20.34,641503,489741,930,930,0,0
+115,RETENTION APPELLATE COURT MARY S. SCHOSTOK,Yes/Sí,,320473,78.81,641503,489741,930,930,0,0
+116,RETENTION APPELLATE COURT MARY S. SCHOSTOK,No,,86168,21.19,641503,489741,930,930,0,0
+117,RETENTION JUDICIAL COURT JOHN J. KINSELLA,Yes/Sí,,311399,76.75,641503,489741,930,930,0,0
+118,RETENTION JUDICIAL COURT JOHN J. KINSELLA,No,,94315,23.25,641503,489741,930,930,0,0
+119,RETENTION JUDICIAL COURT BOB KLEEMAN,Yes/Sí,,302572,74.75,641503,489741,930,930,0,0
+120,RETENTION JUDICIAL COURT BOB KLEEMAN,No,,102229,25.25,641503,489741,930,930,0,0
+121,DUPAGE COUNTY #1 PROP SUPPORT LAW ENFORCEMENT,Yes,,342681,73.88,641503,489741,930,930,0,0
+122,DUPAGE COUNTY #1 PROP SUPPORT LAW ENFORCEMENT,No,,121160,26.12,641503,489741,930,930,0,0
+123,DUPAGE COUNTY #2 PROP PPE STOCKPILE,Yes,,418973,89.29,641503,489741,930,930,0,0
+124,DUPAGE COUNTY #2 PROP PPE STOCKPILE,No,,50230,10.71,641503,489741,930,930,0,0
+125,DUPAGE COUNTY #3 PROP FUND LAW ENFORCEMENT,Yes,,420200,90.02,641503,489741,930,930,0,0
+126,DUPAGE COUNTY #3 PROP FUND LAW ENFORCEMENT,No,,46590,9.98,641503,489741,930,930,0,0
+127,V CAROL STREAM PROP APPOINT CLERK,Yes,,7616,43.77,25586,18937,40,40,0,0
+128,V CAROL STREAM PROP APPOINT CLERK,No,,9784,56.23,25586,18937,40,40,0,0
+129,V GLEN ELLYN PROP CANNABIS,Yes,,8457,51.25,21903,17195,40,40,0,0
+130,V GLEN ELLYN PROP CANNABIS,No,,8044,48.75,21903,17195,40,40,0,0
+131,V LOMBARD PROP VIDEO GAMING,Yes,,12083,52.44,31380,24075,55,55,0,0
+132,V LOMBARD PROP VIDEO GAMING,No,,10960,47.56,31380,24075,55,55,0,0
+133,BLOOMINGDALE TWP PROP ROAD DISTRICT,Yes,,27181,60.08,72060,51875,104,104,0,0
+134,BLOOMINGDALE TWP PROP ROAD DISTRICT,No,,18063,39.92,72060,51875,104,104,0,0
+135,YORK TWP PROP SENIOR TAX,Yes,,54919,82.28,92222,71448,136,136,0,0
+136,YORK TWP PROP SENIOR TAX,No,,11827,17.72,92222,71448,136,136,0,0
+137,YORK TWP PROP CLIMATE CHANGE,Yes,,45183,67.21,92222,71448,136,136,0,0
+138,YORK TWP PROP CLIMATE CHANGE,No,,22046,32.79,92222,71448,136,136,0,0
+139,WEST CHICAGO PARK PROP COMMISSIONERS,Yes,,7813,64.08,18492,13425,32,32,0,0
+140,WEST CHICAGO PARK PROP COMMISSIONERS,No,,4379,35.92,18492,13425,32,32,0,0
+141,Bensenville Fire 2 Prop Tax,Yes/Sí,,3167,57.63,8726,5908,13,13,0,0
+142,Bensenville Fire 2 Prop Tax,No,,2328,42.37,8726,5908,13,13,0,0
+143,DARIEN-WOODRIDGE FIRE PROP BONDS,Yes,,8868,60.14,20290,15944,39,39,0,0
+144,DARIEN-WOODRIDGE FIRE PROP BONDS,No,,5877,39.86,20290,15944,39,39,0,0
+145,Winfield Fire Prop Tax,Yes/Sí,,4799,43.5,14369,11540,28,28,0,0
+146,Winfield Fire Prop Tax,No,,6232,56.5,14369,11540,28,28,0,0
+147,Wood Dale Fire Prop Tax,Yes/Sí,,2801,43.91,9277,6828,17,17,0,0
+148,Wood Dale Fire Prop Tax,No,,3578,56.09,9277,6828,17,17,0,0
+149,SCHOOL DISTRICT 10 PROP SCHOOL BONDS,Yes,,2788,57.54,6584,5097,9,9,0,0
+150,SCHOOL DISTRICT 10 PROP SCHOOL BONDS,No,,2057,42.46,6584,5097,9,9,0,0
+151,SCHOOL DISTRICT 34 PROP SCHOOL BONDS,Yes,,1827,65.18,3579,2898,6,6,0,0
+152,SCHOOL DISTRICT 34 PROP SCHOOL BONDS,No,,976,34.82,3579,2898,6,6,0,0
+153,SCHOOL DISTRICT 62 PROP SCHOOL BONDS,Yes,,3301,59.9,7482,5786,15,15,0,0
+154,SCHOOL DISTRICT 62 PROP SCHOOL BONDS,No,,2210,40.1,7482,5786,15,15,0,0
+155,School District 113A Prop Tax,Yes/Sí,,902,40.61,3011,2373,5,5,0,0
+156,School District 113A Prop Tax,No,,1319,59.39,3011,2373,5,5,0,0

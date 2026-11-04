@@ -208,6 +208,3 @@ __marimo__/
 
 # VS Code
 *.code-workspace
-
-# project-specific
-elections.db
