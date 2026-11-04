@@ -266,6 +266,69 @@ When a flag is marked `mapped`, an entry is added to `contest_name_overrides` li
 
 ---
 
+## Manual database corrections
+
+### Merging duplicate contest names
+
+The flag review process requires a human to choose a canonical name for each new contest.
+If two different canonical names are chosen for what is actually the same contest across
+different election years (e.g. `FOR STATE TREASURER` for 2014/2018 data and `FOR TREASURER`
+for 2022+ data), the report will split or drop results for that contest.
+
+To merge them, pick the canonical name you want to keep and run the following in DBeaver
+(or any SQLite client), substituting `OLD` and `CANONICAL` appropriately:
+
+```sql
+-- 1. Re-point all result rows to the canonical name
+UPDATE contest_results
+SET contest_name = 'CANONICAL',
+    contest_id   = (SELECT id FROM contests WHERE contest_name = 'CANONICAL')
+WHERE contest_name = 'OLD';
+
+-- 2. Fix all overrides that pointed at the old name
+UPDATE contest_name_overrides
+SET contest_name = 'CANONICAL'
+WHERE contest_name = 'OLD';
+
+-- 3. Remove the old name from the registry
+DELETE FROM contest_name_registry WHERE contest_name = 'OLD';
+
+-- 4. Remove the orphaned contests row
+DELETE FROM contests WHERE contest_name = 'OLD';
+```
+
+Then update `contest-name-starter.csv`: replace any occurrence of `OLD` with `CANONICAL`
+so a fresh database build never re-introduces the bad name.
+
+Verify with:
+
+```sql
+SELECT 'contest_name_registry' as tbl, contest_name FROM contest_name_registry WHERE contest_name = 'OLD'
+UNION ALL
+SELECT 'contests', contest_name FROM contests WHERE contest_name = 'OLD'
+UNION ALL
+SELECT 'contest_name_overrides', contest_name FROM contest_name_overrides WHERE contest_name = 'OLD'
+UNION ALL
+SELECT 'contest_results', contest_name FROM contest_results WHERE contest_name = 'OLD';
+```
+
+Should return zero rows.
+
+### Fixing a contest incorrectly marked as legislation
+
+The `is_legislation` flag on the `contests` table is inferred at first load: if no candidate
+row for the contest has a party value, the contest is treated as a ballot measure
+(`is_legislation = 1`) and excluded from partisan analysis. If a partisan contest was first
+loaded from a file with no party column, it will be mis-classified.
+
+To correct it:
+
+```sql
+UPDATE contests SET is_legislation = 0 WHERE contest_name = 'FOR TREASURER';
+```
+
+---
+
 ## Architecture
 
 **`models.py`** defines the core dataclasses: `Election`, `Contest`, `Candidate`.
